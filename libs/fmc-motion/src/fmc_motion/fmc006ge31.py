@@ -64,11 +64,46 @@ def vendor_dll_path() -> Path:
     return Path(__file__).resolve().parent / "vendor" / arch / "FMC006GE31.dll"
 
 
+#: Typed signatures for every vendor function the backend uses (SDK manual
+#: V1.2). With argtypes declared, ctypes converts plain Python ints/floats
+#: safely and catches wrong-arity calls at the boundary.
+_SIGNATURES: dict[str, tuple[list, object]] = {
+    "FMC006GE31_Open_Device": ([c_int32, c_char_p, c_int32, c_int32], c_int32),
+    "FMC006GE31_Close_Device": ([c_int32], c_int32),
+    "FMC006GE31_Jog_Single_Axis": (
+        [c_int32, c_int32, c_float, c_float, c_float, c_float, c_int32], c_int32),
+    "FMC006GE31_Home_Single_Axis": (
+        [c_int32, c_int32, c_float, c_float, c_float, c_int32], c_int32),
+    "FMC006GE31_Check_Axis_Is_Stop": ([c_int32, c_int32], c_int32),
+    "FMC006GE31_Stop_Single_Axis": ([c_int32, c_int32, c_int32], c_int32),
+    "FMC006GE31_Get_Machine_Status": ([c_int32, ctypes.c_void_p], c_int32),
+    "FMC006GE31_Get_Axis_Current_Pos": (
+        [c_int32, c_int32, ctypes.POINTER(c_float)], c_int32),
+    "FMC006GE31_Get_Axis_Current_Speed": (
+        [c_int32, c_int32, ctypes.POINTER(c_float)], c_int32),
+}
+
+
+def _bind(dll: ctypes.WinDLL) -> ctypes.WinDLL:
+    for name, (argtypes, restype) in _SIGNATURES.items():
+        fn = getattr(dll, name)
+        fn.argtypes = argtypes
+        fn.restype = restype
+    return dll
+
+
 class FMC006GE31Controller(EngineController):
     """Real-hardware backend for FMC006GE31 controllers (Windows only)."""
 
+    #: default motion-start grace when the config leaves it unset (the vendor
+    #: demo waits 1 s before polling Check_Axis_Is_Stop; 0.3 s is a starting
+    #: point to be validated in the M3 bench tests)
+    DEFAULT_START_GRACE_S = 0.3
+
     def __init__(self, config: ControllerConfig) -> None:
         super().__init__(config)
+        if config.move_start_grace_s is None:
+            self._start_grace = self.DEFAULT_START_GRACE_S
         self._dll: Optional[ctypes.WinDLL] = None
         self._id = config.connection.device_id
         self._status_buf = _MachineStatus()
@@ -99,10 +134,10 @@ class FMC006GE31Controller(EngineController):
         dll_path = vendor_dll_path()
         if not dll_path.exists():
             raise ControllerConnectionError(f"vendor DLL not found: {dll_path}")
-        dll = ctypes.WinDLL(str(dll_path))
+        dll = _bind(ctypes.WinDLL(str(dll_path)))
         c = self._cfg.connection
         rc = dll.FMC006GE31_Open_Device(
-            self._id, c_char_p(c.ip.encode("utf-8")), c.port, c.tcp_mode
+            self._id, c.ip.encode("utf-8"), c.port, c.tcp_mode
         )
         if rc != 0:
             raise ControllerConnectionError(

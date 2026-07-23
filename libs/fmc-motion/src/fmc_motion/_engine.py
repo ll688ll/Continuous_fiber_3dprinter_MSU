@@ -117,6 +117,8 @@ class EngineController(MotionController):
             rt.soft_max = ax_cfg.soft_limits.max
             self._axes[ax_cfg.index] = rt
 
+        # backend may override when config leaves it None (real: 0.3 s, sim: 0)
+        self._start_grace = config.move_start_grace_s or 0.0
         self._ll_lock = threading.RLock()      # serializes all _ll_* calls
         self._state_lock = threading.RLock()   # engine bookkeeping
         self._connected = False
@@ -647,6 +649,7 @@ class EngineController(MotionController):
         with self._ll_lock:
             self._ll_home(axis, h.speed, h.accdec, h.fall_step,
                           direction_positive=h.direction != HOMING_NEGATIVE)
+        self._start_grace_wait(rt)
         self._poll_until_stopped(rt, cmd, check_limits=False)
         with self._state_lock:
             rt.homed = True
@@ -679,6 +682,7 @@ class EngineController(MotionController):
         with self._ll_lock:
             self._ll_move(axis, cmd.target, cmd.speed, cmd.accel, cmd.decel,
                           relative=cmd.relative)
+        self._start_grace_wait(rt)
         self._poll_until_stopped(rt, cmd, check_limits=True, direction=direction)
         cmd.handle._finish_ok(self._snapshot(max_age=0.0).positions[axis])
 
@@ -689,6 +693,7 @@ class EngineController(MotionController):
         with self._ll_lock:
             self._ll_move(axis, cmd.direction * cmd.target, cmd.speed, cmd.accel,
                           cmd.decel, relative=True)
+        self._start_grace_wait(rt)
         deadline = self._move_deadline(rt)
         limit_key = "limit_positive" if cmd.direction > 0 else "limit_negative"
         while True:
@@ -745,6 +750,16 @@ class EngineController(MotionController):
         if rt.cfg.move_timeout_s is None:
             return None
         return time.monotonic() + rt.cfg.move_timeout_s
+
+    def _start_grace_wait(self, rt: _AxisRuntime) -> None:
+        """Give the controller time to actually start the motion before
+        trusting Check_Axis_Is_Stop (vendor demo waits 1 s). Abort-responsive."""
+        if self._start_grace <= 0:
+            return
+        end = time.monotonic() + self._start_grace
+        while time.monotonic() < end:
+            self._raise_if_aborted(rt)
+            time.sleep(min(0.05, self._cfg.poll_interval_s))
 
     def _raise_if_aborted(self, rt: _AxisRuntime) -> None:
         if rt.abort.is_set() or self._shutdown.is_set():

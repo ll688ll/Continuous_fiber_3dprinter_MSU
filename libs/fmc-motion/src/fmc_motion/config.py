@@ -111,6 +111,10 @@ class ControllerConfig:
     connection: ConnectionConfig = field(default_factory=ConnectionConfig)
     axes: list[AxisConfig] = field(default_factory=list)
     poll_interval_s: float = 0.05
+    #: Time after dispatching a move/home before trusting Check_Axis_Is_Stop
+    #: (the controller needs a moment to actually start; vendor demo waits 1 s).
+    #: None = backend default (real: 0.3 s, sim: 0).
+    move_start_grace_s: Optional[float] = None
     sim: SimConfig = field(default_factory=SimConfig)
     source_path: Optional[str] = None  # set when loaded from disk
 
@@ -120,6 +124,8 @@ class ControllerConfig:
             raise ConfigError("config must define at least one axis")
         if self.poll_interval_s <= 0:
             raise ConfigError("poll_interval_s must be > 0")
+        if self.move_start_grace_s is not None and self.move_start_grace_s < 0:
+            raise ConfigError("move_start_grace_s must be >= 0")
         seen: set[int] = set()
         for ax in self.axes:
             prefix = f"axis {ax.index!r} ({ax.name or 'unnamed'})"
@@ -176,6 +182,7 @@ class ControllerConfig:
                 connection=ConnectionConfig(**data.get("connection", {})),
                 axes=[_axis_from_dict(a) for a in data.get("axes", [])],
                 poll_interval_s=float(data.get("poll_interval_s", 0.05)),
+                move_start_grace_s=data.get("move_start_grace_s"),
                 sim=_sim_from_dict(data.get("sim", {})),
             )
         except TypeError as exc:
