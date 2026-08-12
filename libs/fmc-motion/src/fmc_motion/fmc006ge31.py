@@ -81,6 +81,8 @@ _SIGNATURES: dict[str, tuple[list, object]] = {
     "FMC006GE31_Check_Axis_Is_Stop": ([c_int32, c_int32], c_int32),
     "FMC006GE31_Stop_Single_Axis": ([c_int32, c_int32, c_int32], c_int32),
     "FMC006GE31_Get_Machine_Status": ([c_int32, ctypes.c_void_p], c_int32),
+    "FMC006GE31_Pause_Run": ([c_int32, c_uint32], c_int32),
+    "FMC006GE31_Resume_Run": ([c_int32, c_uint32], c_int32),
     "FMC006GE31_Get_Axis_Current_Pos": (
         [c_int32, c_int32, ctypes.POINTER(c_float)], c_int32),
     "FMC006GE31_Get_Axis_Current_Speed": (
@@ -217,6 +219,17 @@ class FMC006GE31Controller(EngineController):
                 self._id, axis, _STOP_IMMEDIATE if immediate else _STOP_DECEL
             )
         self._check(rc, "FMC006GE31_Stop_Single_Axis")
+
+    def _ll_pause(self, axis: int) -> None:
+        # Pause_Run takes a bitmask of axes; validated on hardware in bench B4
+        with self._dll_lock:
+            rc = self._lib().FMC006GE31_Pause_Run(self._id, 1 << axis)
+        self._check(rc, "FMC006GE31_Pause_Run")
+
+    def _ll_resume(self, axis: int) -> None:
+        with self._dll_lock:
+            rc = self._lib().FMC006GE31_Resume_Run(self._id, 1 << axis)
+        self._check(rc, "FMC006GE31_Resume_Run")
 
     def _ll_snapshot(self) -> LLSnapshot:
         with self._dll_lock:

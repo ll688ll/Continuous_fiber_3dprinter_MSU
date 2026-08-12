@@ -18,6 +18,8 @@ See `../../docs/PRD_Motion_Control_Library.md` for the full requirements.
   persisted to a JSON/YAML config file.
 - Safety: soft limits, stop / e-stop (all-axis immediate stop + latched
   lockout), limit-trip faults, normalized vendor error codes.
+- `pause(axis)` / `resume(axis)` of in-flight moves (vendor
+  `Pause_Run`/`Resume_Run`, validated on hardware).
 - **Sim mode**: trapezoidal motion kinematics, virtual limit switches, fault
   injection, time acceleration — the full test suite and the complete
   self-check routine run on any OS with no hardware and no DLL.
@@ -61,7 +63,7 @@ Minimal config (JSON):
 |---|---|---|
 | Platform | Windows (vendor DLL, 32/64-bit auto-selected) | any |
 | Backend | `FMC006GE31Controller` (ctypes) | `SimMotionController` |
-| Status | M2 — binding complete, hardware-untested | M1 — fully tested |
+| Status | **hardware-validated** (2-axis acceptance run passed 2026-08-11; see `../../docs/test-records/`) | fully tested |
 
 ## Tests
 

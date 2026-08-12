@@ -1,0 +1,24 @@
+{
+  "B3_status_latency": {
+    "avg_ms": 117.493,
+    "p95_ms": 120.118,
+    "max_ms": 120.297
+  },
+  "B2_busy_axis": {
+    "first_rc": 0,
+    "second_rc_while_moving": -10,
+    "completed": true
+  },
+  "B4_pause_resume": {
+    "pause_rc": 0,
+    "resume_rc": 0,
+    "held_position_while_paused": true,
+    "completed_after_resume": true
+  },
+  "B1_limit_hit": {
+    "behavior": "hardware-stopped (is_stop=1)",
+    "trip_position_mm": 85.4520034790039,
+    "final_position_mm": 85.4520034790039,
+    "overrun_mm": 0.0
+  }
+}

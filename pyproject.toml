@@ -8,11 +8,14 @@ version = "0.0.0"
 description = "Multi-module 3D printer control program (PySide6 UI, controller plugins, G-code streaming)."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-  "PySide6>=6.6",
-]
+# Core (controllers, G-code, services) has no GUI dependency; the PySide6 UI
+# is an extra so headless/library consumers stay lightweight (PRD Q7).
+dependencies = []
 
 [project.optional-dependencies]
+ui = [
+  "PySide6>=6.6",
+]
 dev = [
   "pytest>=7",
 ]

@@ -29,9 +29,15 @@ Customized multi-axis 3D printer control software (desktop) for a multi-module p
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e .[dev]
+pip install -e libs/fmc-motion[dev]
+pip install -e .[ui,dev]
 python -m printer_msu
 ```
+
+The PySide6 UI is an optional extra (`.[ui]`); the core and the motion
+library install without it. The printer core reaches the motion hardware via
+`printer_msu.controllers.motion.fmc_motion_adapter.FmcMotionAdapter`, which
+wraps the `fmc_motion` library (real or sim).
 
 ### Notes
 - The FMC006GE31 demo script is in `examples/fmc006ge31_basic_motion.py` (Windows-only).

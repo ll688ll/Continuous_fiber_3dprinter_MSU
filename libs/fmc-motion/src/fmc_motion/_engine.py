@@ -96,6 +96,8 @@ class _AxisRuntime:
     worker: Optional[threading.Thread] = None
     homed: bool = False
     fault: Optional[str] = None
+    paused: bool = False
+    current_kind: Optional[str] = None     # kind of the in-flight command
     abort: threading.Event = field(default_factory=threading.Event)
     predicted_end: Optional[float] = None  # end position after all queued cmds
     # runtime soft limits (seeded from config, updated by self_check)
@@ -150,6 +152,12 @@ class EngineController(MotionController):
         raise NotImplementedError
 
     def _ll_stop(self, axis: int, immediate: bool) -> None:
+        raise NotImplementedError
+
+    def _ll_pause(self, axis: int) -> None:
+        raise NotImplementedError
+
+    def _ll_resume(self, axis: int) -> None:
         raise NotImplementedError
 
     def _ll_snapshot(self) -> LLSnapshot:
@@ -391,6 +399,43 @@ class EngineController(MotionController):
     def jog_stop(self, axis: int) -> None:
         self.stop(axis, mode="controlled")
 
+    def pause(self, axis: int) -> None:
+        """Pause the in-flight move on an axis (vendor Pause_Run — validated
+        on hardware in bench B4). Queued commands stay queued; ``resume``
+        continues the move to its original target."""
+        rt = self._axis(axis)
+        with self._state_lock:
+            if rt.paused:
+                return
+            if rt.current_kind in (_KIND_HOME, _KIND_CREEP):
+                raise MotionError(
+                    f"axis {axis}: cannot pause a {rt.current_kind} operation"
+                )
+            if rt.current_kind is None:
+                logger.info("pause axis=%s: idle, nothing to pause", axis)
+                return
+            rt.paused = True  # set first so the worker's poll loop holds
+        try:
+            with self._ll_lock:
+                self._ll_pause(axis)
+            logger.info("pause axis=%s", axis)
+        except MotionError:
+            with self._state_lock:
+                rt.paused = False
+            raise
+
+    def resume(self, axis: int) -> None:
+        rt = self._axis(axis)
+        self._check_estop()
+        with self._state_lock:
+            if not rt.paused:
+                return
+        with self._ll_lock:
+            self._ll_resume(axis)
+        with self._state_lock:
+            rt.paused = False
+        logger.info("resume axis=%s", axis)
+
     def wait_for(self, axis: int, timeout: Optional[float] = None) -> bool:
         """Block until the axis queue is empty and the axis is stopped."""
         rt = self._axis(axis)
@@ -479,7 +524,8 @@ class EngineController(MotionController):
                     encoder_position=snap.encoder_positions.get(idx),
                     speed=snap.speeds[idx],
                     homed=rt.homed,
-                    busy=not (rt.queue.empty() and self._is_stopped(idx)),
+                    busy=rt.paused or not (rt.queue.empty() and self._is_stopped(idx)),
+                    paused=rt.paused,
                     queue_depth=rt.queue.qsize(),
                     limit_negative=snap.limit_negative[idx],
                     limit_positive=snap.limit_positive[idx],
@@ -530,6 +576,7 @@ class EngineController(MotionController):
             "max_axes": 6,
             "interpolation": False,       # deferred (PRD Q4)
             "continuous_jog": False,      # emulated (PRD Q6)
+            "pause_resume": True,         # vendor Pause_Run/Resume_Run (bench B4)
             "encoder_feedback": True,
             "global_stop": False,         # vendor Stop_Run unused; per-axis loop
             "sim": self.is_sim,
@@ -608,6 +655,8 @@ class EngineController(MotionController):
             handle._finish_error(error, cancelled=True)
         with self._state_lock:
             rt.predicted_end = None
+            if abort_running:
+                rt.paused = False  # stop/estop overrides a pause
         if abort_running:
             rt.abort.set()
 
@@ -622,6 +671,8 @@ class EngineController(MotionController):
                 continue
             rt.abort.clear()
             cmd.handle._start()
+            with self._state_lock:
+                rt.current_kind = cmd.kind
             try:
                 self._dispatch(rt, cmd)
             except MoveCancelledError as exc:
@@ -639,6 +690,10 @@ class EngineController(MotionController):
                 logger.exception("axis %s worker crashed on %s", rt.cfg.index,
                                  cmd.handle.description)
                 cmd.handle._finish_error(MotionError(str(exc)))
+            finally:
+                with self._state_lock:
+                    rt.current_kind = None
+                    rt.paused = False
 
     def _dispatch(self, rt: _AxisRuntime, cmd: _Cmd) -> None:
         axis = rt.cfg.index
@@ -777,6 +832,12 @@ class EngineController(MotionController):
         stopped_reads = 0
         while True:
             self._raise_if_aborted(rt)
+            if rt.paused:  # hold: a paused axis reads stopped but is not done
+                stopped_reads = 0
+                if deadline is not None:
+                    deadline += self._cfg.poll_interval_s
+                time.sleep(self._cfg.poll_interval_s)
+                continue
             if check_limits:
                 snap = self._snapshot()
                 tripped = (snap.limit_positive[axis] if direction > 0

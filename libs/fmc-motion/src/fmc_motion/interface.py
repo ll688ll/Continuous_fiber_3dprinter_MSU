@@ -75,6 +75,7 @@ class AxisStatus:
     speed: float                    # mm/s
     homed: bool
     busy: bool
+    paused: bool
     queue_depth: int
     limit_negative: bool
     limit_positive: bool
@@ -202,6 +203,12 @@ class MotionController(ABC):
 
     @abstractmethod
     def jog_stop(self, axis: int) -> None: ...
+
+    @abstractmethod
+    def pause(self, axis: int) -> None: ...
+
+    @abstractmethod
+    def resume(self, axis: int) -> None: ...
 
     @abstractmethod
     def wait_for(self, axis: int, timeout: Optional[float] = None) -> bool: ...

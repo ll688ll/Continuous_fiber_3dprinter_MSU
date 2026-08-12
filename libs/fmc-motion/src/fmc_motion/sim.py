@@ -122,6 +122,8 @@ class _SimAxis:
         self.profile: Optional[_Profile] = None
         self.home_pending: Optional[tuple[float, float]] = None  # (switch_pos, final_pos)
         self.stalled = False
+        self.last_move_params: tuple[float, float, float] = (10.0, 100.0, 100.0)
+        self.paused_target: Optional[float] = None  # internal target to resume to
 
     # -- state -------------------------------------------------------------
     def current(self, t: float) -> tuple[float, float]:
@@ -159,7 +161,28 @@ class _SimAxis:
     def start_move(self, t: float, target_internal: float, v: float, a: float,
                    d: float) -> None:
         pos, _ = self.current(t)
+        self.last_move_params = (v, a, d)
+        self.paused_target = None
         self.profile = _Profile.point_to_point(t, pos, target_internal, v, a, d)
+
+    def pause(self, t: float) -> None:
+        """Freeze the in-flight move, remembering its target (vendor Pause_Run
+        held position on hardware — bench B4)."""
+        if self.profile is None or self.home_pending is not None:
+            return
+        pos, _ = self.current(t)
+        self.paused_target = self.profile.end_pos
+        self.profile = None
+        self.static_pos = min(max(pos, self.hard_min), self.hard_max)
+
+    def resume(self, t: float) -> None:
+        if self.paused_target is None:
+            return
+        target = self.paused_target
+        v, a, d = self.last_move_params
+        self.paused_target = None
+        pos, _ = self.current(t)
+        self.profile = _Profile.point_to_point(t, pos, target, v, a, d)
 
     def start_home(self, t: float, speed: float, accdec: float, fall_step: float,
                    direction_positive: bool) -> None:
@@ -175,6 +198,7 @@ class _SimAxis:
 
     def stop(self, t: float, immediate: bool, decel: float) -> None:
         self.stalled = False
+        self.paused_target = None
         pos, vel = self.current(t)
         self.home_pending = None
         if self.profile is None:
@@ -312,6 +336,18 @@ class SimMotionController(EngineController):
             decel = self._axes[axis].cfg.defaults.decel if axis in self._axes else 1000.0
             self._models[axis].stop(self._now(), immediate, decel)
         self._record("stop", axis=axis, immediate=immediate)
+
+    def _ll_pause(self, axis: int) -> None:
+        self._consume_injected_error()
+        with self._model_lock:
+            self._models[axis].pause(self._now())
+        self._record("pause", axis=axis)
+
+    def _ll_resume(self, axis: int) -> None:
+        self._consume_injected_error()
+        with self._model_lock:
+            self._models[axis].resume(self._now())
+        self._record("resume", axis=axis)
 
     def _ll_snapshot(self) -> LLSnapshot:
         with self._model_lock:

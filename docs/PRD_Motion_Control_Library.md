@@ -381,10 +381,21 @@ consume the library through its existing HAL contract.
   between attempts). If a run crashes without disconnecting, the controller
   may need a power cycle before it accepts new connections.
 
+### Acceptance result — v1 criteria MET (2026-08-11, axes 0+1)
+Full two-axis acceptance run **PASSED** after the start-latency fixes
+(record: `docs/test-records/2026-08-11/hw_acceptance_report.json`):
+- self-check: axis 0 span 283.16 mm, axis 1 span 85.42 mm (axis 1's actuator
+  is genuinely shorter);
+- span repeatability after the parking fix: **0.03 mm** run-to-run (was
+  2.5 mm);
+- moves reached targets at 0.000 mm reported error; queued moves executed in
+  order; jog stayed within soft limits;
+- **e-stop dispatch: 39.6 ms for 2 axes** — `Stop_Single_Axis` is much
+  cheaper than a status read, so 6 axes project to ~120 ms, well inside the
+  500 ms budget (supersedes the earlier ~0.85 s serial-loop concern).
+
 ### Remaining open items
-- Re-run `hw_acceptance.py --axes 0,1` with the start-latency fixes to get a
-  clean two-axis acceptance pass.
-- Re-measure e-stop dispatch with >2 axes wired; ask vendor about DLL thread
-  safety for parallel per-axis stops.
-- Span repeatability check across 3+ self-check runs (expect < 1 mm drift now
-  that parking clears the switch).
+- Re-measure e-stop dispatch when all 6 axes are wired (projection ~120 ms).
+- Ask vendor about DLL thread safety (only an optimization now).
+- M4: `printer_msu` adapter, packaging polish, pause/resume API
+  (B4-validated).
