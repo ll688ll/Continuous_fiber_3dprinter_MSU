@@ -31,13 +31,32 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -e libs/fmc-motion[dev]
 pip install -e .[ui,dev]
-python -m printer_msu
 ```
+
+Validate and print a G-code file (motion-only v1, sim mode — no hardware
+needed):
+
+```bash
+printer-msu check examples/square_20mm.gcode --profile configs/printer_sim.json
+printer-msu print examples/square_20mm.gcode --profile configs/printer_sim.json
+```
+
+On the lab machine, use `--profile configs/printer_msu_lab.json` (real mode,
+XY only). `python -m printer_msu ...` works identically; `printer-msu ui`
+opens the (placeholder) PySide6 window. Design docs: `docs/PRD_Printer_App.md`
+(printer core) and `docs/PRD_Motion_Control_Library.md` (motion library).
 
 The PySide6 UI is an optional extra (`.[ui]`); the core and the motion
 library install without it. The printer core reaches the motion hardware via
 `printer_msu.controllers.motion.fmc_motion_adapter.FmcMotionAdapter`, which
-wraps the `fmc_motion` library (real or sim).
+wraps the `fmc_motion` library (real or sim) — coordinated straight-line XY
+moves included (library v1.1 `move_line`).
+
+### Tests
+
+```bash
+pytest            # printer core + motion library (152 tests, sim only)
+```
 
 ### Notes
 - The FMC006GE31 demo script is in `examples/fmc006ge31_basic_motion.py` (Windows-only).

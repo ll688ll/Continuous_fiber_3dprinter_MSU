@@ -6,7 +6,7 @@ import pytest
 
 from fmc_motion import ConfigError, ControllerConfig, create_controller
 
-from conftest import base_config_dict
+from fmc_testlib import base_config_dict
 
 
 def _dict(**overrides):

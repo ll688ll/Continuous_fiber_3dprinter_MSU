@@ -1,0 +1,24 @@
+{
+  "profile_name": "MSU lab XY stage (real, no Z wired)",
+  "motion": {
+    "config": "msu_lab.json",
+    "mode": "real",
+    "axis_map": {"X": 0, "Y": 1}
+  },
+  "tools": [
+    {"tool_index": 0, "z_axis": null}
+  ],
+  "gcode": {
+    "default_tool": 0,
+    "default_feed_mm_min": 1200.0,
+    "travel_feed_mm_min": 2400.0
+  },
+  "policies": {
+    "unknown_command": "warn",
+    "tool_commands": "skip",
+    "missing_axis": "skip",
+    "feed_over_max": "clamp",
+    "require_homed": true,
+    "home_before_print": false
+  }
+}

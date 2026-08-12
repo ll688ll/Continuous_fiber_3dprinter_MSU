@@ -122,6 +122,11 @@ class _AxisRuntime:
     current_kind: Optional[str] = None     # kind of the in-flight command
     abort: threading.Event = field(default_factory=threading.Event)
     predicted_end: Optional[float] = None  # end position after all queued cmds
+    #: commands accepted but not yet finished (queued + in flight). Kept under
+    #: the state lock. "queue empty + axis stopped" alone is NOT an idle test:
+    #: a dequeued command whose motion has not physically started yet reads as
+    #: idle and races predicted-end validation / wait_for / busy reporting.
+    pending: int = 0
     # runtime soft limits (seeded from config, updated by self_check)
     soft_min: Optional[float] = None
     soft_max: Optional[float] = None
@@ -486,6 +491,7 @@ class EngineController(MotionController):
                         )
             for a, rt in rts.items():
                 rt.predicted_end = group.targets[a]
+                rt.pending += 1
                 rt.queue.put(_Cmd(kind=_KIND_LINE, handle=handle,
                                   target=group.targets[a], speed=speed,
                                   accel=accel, decel=decel, group=group))
@@ -554,7 +560,7 @@ class EngineController(MotionController):
         rt = self._axis(axis)
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
-            idle = rt.queue.empty() and self._is_stopped(axis)
+            idle = rt.pending == 0 and self._is_stopped(axis)
             if idle:
                 return True
             if deadline is not None and time.monotonic() > deadline:
@@ -637,7 +643,8 @@ class EngineController(MotionController):
                     encoder_position=snap.encoder_positions.get(idx),
                     speed=snap.speeds[idx],
                     homed=rt.homed,
-                    busy=rt.paused or not (rt.queue.empty() and self._is_stopped(idx)),
+                    busy=(rt.paused or rt.pending > 0
+                          or not self._is_stopped(idx)),
                     paused=rt.paused,
                     queue_depth=rt.queue.qsize(),
                     limit_negative=snap.limit_negative[idx],
@@ -750,12 +757,15 @@ class EngineController(MotionController):
                             f"[{lo:.3f}, {hi:.3f}]"
                         )
                 rt.predicted_end = end
+            rt.pending += 1
             rt.queue.put(cmd)
         logger.debug("enqueue axis=%s %s", rt.cfg.index, cmd.handle.description)
 
     def _predict_end(self, rt: _AxisRuntime, cmd: _Cmd) -> float:
         base = rt.predicted_end
-        if base is None or (rt.queue.empty() and self._is_stopped(rt.cfg.index)):
+        # fall back to the live position only when truly idle: pending covers
+        # the dequeued-but-not-yet-moving window that queue.empty() misses
+        if base is None or (rt.pending == 0 and self._is_stopped(rt.cfg.index)):
             base = self._snapshot().positions[rt.cfg.index]
         return base + cmd.target if cmd.relative else cmd.target
 
@@ -768,6 +778,7 @@ class EngineController(MotionController):
         for handle in cancelled:
             handle._finish_error(error, cancelled=True)
         with self._state_lock:
+            rt.pending -= len(cancelled)
             rt.predicted_end = None
             if abort_running:
                 rt.paused = False  # stop/estop overrides a pause
@@ -782,6 +793,8 @@ class EngineController(MotionController):
             except queue_mod.Empty:
                 continue
             if cmd.handle.finished:  # cancelled while queued
+                with self._state_lock:
+                    rt.pending -= 1
                 continue
             rt.abort.clear()
             cmd.handle._start()
@@ -808,6 +821,7 @@ class EngineController(MotionController):
                 cmd.handle._finish_error(MotionError(str(exc)))
             finally:
                 with self._state_lock:
+                    rt.pending -= 1
                     rt.current_kind = None
                     rt.paused = False
 
@@ -960,13 +974,14 @@ class EngineController(MotionController):
         would race with commands enqueued after the failure."""
         group = cmd.group
         assert group is not None
-        while not cmd.handle.finished:
+        # wake immediately when the executor finishes the shared handle;
+        # abort checks run at poll granularity
+        while not cmd.handle._done.wait(self._poll_sleep_s):
             if rt.abort.is_set() or self._shutdown.is_set():
                 # tell the executor (which may not have arrived yet) to bail;
                 # it finishes the shared handle as cancelled
                 group.abort.set()
                 return
-            time.sleep(self._poll_sleep_s)
 
     def _line_abort_requested(self, group: _LineGroup) -> bool:
         if group.abort.is_set() or self._shutdown.is_set():

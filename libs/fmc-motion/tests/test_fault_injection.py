@@ -10,7 +10,7 @@ from fmc_motion import (
     MoveTimeoutError,
     create_controller,
 )
-from conftest import base_config_dict
+from fmc_testlib import base_config_dict
 
 
 def test_connect_failure():

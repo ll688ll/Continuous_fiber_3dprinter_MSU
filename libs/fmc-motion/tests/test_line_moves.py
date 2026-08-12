@@ -19,7 +19,7 @@ from fmc_motion import (
 )
 from fmc_motion.interface import MoveState
 
-from conftest import base_config_dict
+from fmc_testlib import base_config_dict
 
 
 @pytest.fixture

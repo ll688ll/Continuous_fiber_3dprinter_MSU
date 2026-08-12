@@ -10,7 +10,12 @@ readme = "README.md"
 requires-python = ">=3.10"
 # Core (controllers, G-code, services) has no GUI dependency; the PySide6 UI
 # is an extra so headless/library consumers stay lightweight (PRD Q7).
-dependencies = []
+# fmc-motion is the local motion library: install it first
+# (`pip install -e libs/fmc-motion`), it is not on PyPI.
+dependencies = ["fmc-motion"]
+
+[project.scripts]
+printer-msu = "printer_msu.cli:main"
 
 [project.optional-dependencies]
 ui = [

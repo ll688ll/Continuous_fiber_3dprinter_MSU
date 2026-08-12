@@ -56,7 +56,7 @@ def test_manual_soft_limits_enforced(sim_unhomed_ok):
     rt_cfg.soft_limits.min = -10.0
     rt_cfg.soft_limits.max = 10.0
     # runtime copies were seeded at construction; use a fresh controller
-    from conftest import base_config_dict
+    from fmc_testlib import base_config_dict
     from fmc_motion import create_controller
 
     data = base_config_dict()

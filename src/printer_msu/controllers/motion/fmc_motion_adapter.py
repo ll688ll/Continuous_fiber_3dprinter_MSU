@@ -7,10 +7,13 @@ without changes to either side.
 
 Requires `fmc-motion` to be installed (dev: ``pip install -e libs/fmc-motion``).
 
-v1 semantics (independent axes, per the motion-library PRD):
-- A multi-axis move dispatches each axis concurrently and waits for all —
-  axes start/finish independently; this is NOT interpolated line motion.
-- ``feed`` applies to each axis individually.
+Motion semantics (library v1.1):
+- An **absolute move on exactly 2 axes** runs as one interpolated straight
+  line (`move_line`, vendor Line_2Axis); ``feed`` is the composite path feed.
+- Any other multi-axis move (relative, or 3+ axes) dispatches each axis
+  concurrently and waits for all — independent axes, NOT a straight line.
+  The printer core only ever sends 1- and 2-axis absolute moves (the
+  interpreter splits Z from XY), so prints always get true lines.
 """
 
 from __future__ import annotations
@@ -97,6 +100,16 @@ class FmcMotionAdapter(BaseMotionController):
 
     def _move(self, values: Mapping[str, float], feed: float,
               accel: float | None, decel: float | None, *, relative: bool) -> None:
+        if not relative and len(values) == 2 and self._ctrl.capabilities().get(
+                "interpolation"):
+            targets = {self._index_of(n): v for n, v in values.items()}
+            kwargs = {}
+            if accel is not None:
+                kwargs["accel"] = accel
+            if decel is not None:
+                kwargs["decel"] = decel
+            self._ctrl.move_line(targets, speed=feed, wait=True, **kwargs)
+            return
         handles = []
         for name, value in values.items():
             idx = self._index_of(name)
@@ -118,6 +131,17 @@ class FmcMotionAdapter(BaseMotionController):
         caps = dict(self._ctrl.capabilities())
         caps["axis_names"] = sorted(self._name_to_index)
         return caps
+
+    def homed_axes(self) -> set[str]:
+        """Logical names of axes that are homed (preflight, FR-PRE-01)."""
+        status = self._ctrl.get_status()
+        return {self._index_to_name[i] for i, ax in status.axes.items()
+                if ax.homed and i in self._index_to_name}
+
+    def max_speeds(self) -> dict[str, float]:
+        """Configured max speed (mm/s) per logical axis (feed clamping)."""
+        return {name: self._ctrl.get_axis_config(idx).max.speed
+                for name, idx in self._name_to_index.items()}
 
     def _index_of(self, name: str) -> int:
         try:
