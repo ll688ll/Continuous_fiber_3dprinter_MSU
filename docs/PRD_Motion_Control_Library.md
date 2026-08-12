@@ -408,11 +408,21 @@ vendor application). Observed defaults and their implications:
 | controller soft limits | X: ±2000 mm; **Y/Z/X1/Y1/Z1: ±200 mm** | the controller clamps motion independently of the library. A long actuator (>200 mm, like the 280 mm unit) only works on channel X unless the channel's limit is raised in the vendor tool |
 | Home Timeout | 10000 (ms) | homing a 280 mm axis from the far end at 20 mm/s takes ~14 s → **would exceed the timeout**; raise it (e.g. 30000) or home faster |
 
+### Config-driven acceptance re-run (2026-08-11 23:10, third pass)
+Driven entirely by the persistent `configs/msu_lab.json`
+(record: `docs/test-records/2026-08-11/hw_acceptance_report_configrun.json`):
+- **Span repeatability across three hardware runs: ±0.03 mm**
+  (X: 283.13/283.16/283.19; Y: 85.44/85.42/85.44) — repeatability item
+  CLOSED.
+- Move error ≤ 0.001 mm; e-stop 39.7 ms (consistent with prior run).
+- `device_para_check --config` correctly flags the one outstanding
+  maintenance action (axis 0 homing vs. Home Timeout).
+
 ### Remaining open items
+- **Maintenance action:** raise X's Home Timeout in the vendor tool (e.g.
+  10000 → 30000) — far-end homing at 20 mm/s takes ~14 s vs the 10 s limit.
 - Re-measure e-stop dispatch when all 6 axes are wired (projection ~120 ms).
 - Ask vendor about DLL thread safety (only an optimization now).
 - Physical scaling check per actuator (command 50 mm, measure with a ruler)
   — especially the short 85 mm actuator, whose screw lead may differ.
-- Raise X's Home Timeout in the vendor tool (or home faster) before relying
-  on far-end homing.
 - Hardware-validate pause/resume through the library API.
