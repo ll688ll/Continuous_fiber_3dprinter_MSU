@@ -426,3 +426,26 @@ Driven entirely by the persistent `configs/msu_lab.json`
 - Physical scaling check per actuator (command 50 mm, measure with a ruler)
   — especially the short 85 mm actuator, whose screw lead may differ.
 - Hardware-validate pause/resume through the library API.
+
+## 11. v1.1 extension — coordinated 2-axis line interpolation (2026-08-11)
+
+The printer application PRD (`docs/PRD_Printer_App.md`, decision D1)
+supersedes Q4's deferral: v1.1 adds **`move_line`** — one interpolated
+straight-line move across exactly two axes via vendor `Line_2Axis`.
+
+- API: `move_line(targets: Mapping[int, float], *, speed=None, accel=None,
+  decel=None, wait=True, timeout=None) -> MoveHandle`; absolute targets;
+  composite (path) speed/accel/decel, defaulting to the participating axes'
+  minima and validated against the minimum of their maxima.
+- Queueing: the line occupies both axes' FIFO queues and dispatches when both
+  are idle at its turn; one shared handle; `stop`/`estop`/`clear_queue` on
+  either axis cancels it. Soft limits validated per axis at enqueue and
+  dispatch; both axes must be homed.
+- Faults: a limit trip on either axis mid-line stops both axes and faults the
+  tripped axis. `pause()` on a line move raises until bench-validated.
+- Sim executes lines as per-axis profiles scaled from the composite values
+  (`v_i = v·|d_i|/L`) — synchronized start/finish, straight path.
+- `capabilities()` now reports `"interpolation": True, "line_axes": 2`.
+- **Bench items (printer PRD B-L1..B-L4)**: absolute-endpoint assumption and
+  `endX`/`endY`↔axis-order, composite-speed semantics and −10 behavior,
+  Pause_Run on interpolated motion, limit-trip-during-line hardware stop.

@@ -75,6 +75,27 @@ class LLSnapshot:
 _KIND_MOVE = "move"
 _KIND_HOME = "home"
 _KIND_CREEP = "creep"  # self-check range search: move until far limit trips
+_KIND_LINE = "line"    # coordinated 2-axis interpolated move (v1.1)
+
+
+@dataclass
+class _LineGroup:
+    """Shared state of one coordinated line move sitting in multiple queues.
+
+    The same command (and handle) is enqueued on every participating axis so
+    the per-axis FIFO order is respected on both. Whichever axis worker
+    arrives *last* becomes the executor (both axes are then idle at the
+    barrier); the others hold their axis until the shared handle finishes.
+    """
+
+    axes: tuple[int, ...]
+    targets: dict[int, float]     # absolute target per axis
+    speed: float                  # composite (path) values
+    accel: float
+    decel: float
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    arrived: set[int] = field(default_factory=set)
+    abort: threading.Event = field(default_factory=threading.Event)
 
 
 @dataclass
@@ -87,6 +108,7 @@ class _Cmd:
     accel: float = 0.0
     decel: float = 0.0
     direction: int = 0           # creep: +1 toward positive limit, -1 toward negative
+    group: Optional[_LineGroup] = None  # set for _KIND_LINE
 
 
 @dataclass
@@ -146,6 +168,12 @@ class EngineController(MotionController):
 
     def _ll_move(self, axis: int, value: float, speed: float, accel: float,
                  decel: float, relative: bool) -> None:
+        raise NotImplementedError
+
+    def _ll_line(self, targets: dict[int, float], speed: float, accel: float,
+                 decel: float) -> None:
+        """Dispatch one interpolated line move to absolute ``targets``
+        (exactly two axes); ``speed``/``accel``/``decel`` are composite."""
         raise NotImplementedError
 
     def _ll_home(self, axis: int, speed: float, accdec: float, fall_step: float,
@@ -396,6 +424,76 @@ class EngineController(MotionController):
             cmd.handle.wait(timeout)
         return cmd.handle
 
+    def move_line(self, targets, *, speed: Optional[float] = None,
+                  accel: Optional[float] = None, decel: Optional[float] = None,
+                  wait: bool = True, timeout: Optional[float] = None) -> MoveHandle:
+        """Coordinated straight-line move across exactly two axes (FR-LINE-01).
+
+        ``targets`` maps axis index -> absolute position. ``speed``/``accel``/
+        ``decel`` are composite (path) values; defaults are the participating
+        axes' configured minima, validated (conservatively) against the
+        minimum of their maxima — per-axis components never exceed the
+        composite value.
+        """
+        axes = tuple(sorted(targets))
+        if len(axes) != 2:
+            raise MotionError(
+                f"move_line supports exactly 2 axes in v1.1, got {len(axes)}"
+            )
+        rts = {a: self._axis(a) for a in axes}
+        if speed is None:
+            speed = min(rt.cfg.defaults.speed for rt in rts.values())
+        if accel is None:
+            accel = min(rt.cfg.defaults.accel for rt in rts.values())
+        if decel is None:
+            decel = min(rt.cfg.defaults.decel for rt in rts.values())
+        for attr, value in (("speed", speed), ("accel", accel), ("decel", decel)):
+            maximum = min(getattr(rt.cfg.max, attr) for rt in rts.values())
+            if not 0 < value <= maximum:
+                raise SoftLimitError(
+                    f"line axes {axes}: composite {attr}={value} outside (0, {maximum}]"
+                )
+        group = _LineGroup(
+            axes=axes,
+            targets={a: float(targets[a]) for a in axes},
+            speed=speed, accel=accel, decel=decel,
+        )
+        desc = "line " + " ".join(f"{a}->{group.targets[a]:+.3f}" for a in axes)
+        handle = MoveHandle(axes[0], _KIND_LINE, desc, axes=axes)
+
+        if not self._connected:
+            raise ControllerConnectionError("not connected")
+        self._check_estop()
+        # validate and enqueue on BOTH axes atomically so the relative order of
+        # line vs. single-axis commands is identical in both queues
+        with self._state_lock:
+            for a, rt in rts.items():
+                if rt.fault:
+                    raise LimitHitError(
+                        f"axis {a} is faulted ({rt.fault}); call clear_fault()"
+                    )
+                if not rt.homed and not rt.cfg.allow_unhomed:
+                    raise NotHomedError(
+                        f"axis {a} is not homed (set allow_unhomed to override)"
+                    )
+                end = group.targets[a]
+                if self._soft_limits_enabled and self._limits_known(rt):
+                    lo, hi = rt.soft_min, rt.soft_max
+                    if not (lo - 1e-9 <= end <= hi + 1e-9):  # type: ignore[operator]
+                        raise SoftLimitError(
+                            f"axis {a}: line target {end:.3f} outside "
+                            f"[{lo:.3f}, {hi:.3f}]"
+                        )
+            for a, rt in rts.items():
+                rt.predicted_end = group.targets[a]
+                rt.queue.put(_Cmd(kind=_KIND_LINE, handle=handle,
+                                  target=group.targets[a], speed=speed,
+                                  accel=accel, decel=decel, group=group))
+        logger.debug("enqueue %s", desc)
+        if wait:
+            handle.wait(timeout)
+        return handle
+
     def jog(self, axis: int, direction: int, speed: Optional[float] = None) -> MoveHandle:
         """Emulated continuous jog (FR-MOVE-05): bounded move toward the
         soft-limit boundary; end it with ``jog_stop``."""
@@ -420,7 +518,9 @@ class EngineController(MotionController):
         with self._state_lock:
             if rt.paused:
                 return
-            if rt.current_kind in (_KIND_HOME, _KIND_CREEP):
+            if rt.current_kind in (_KIND_HOME, _KIND_CREEP, _KIND_LINE):
+                # line: vendor Pause_Run semantics on interpolated motion are
+                # unverified (printer PRD bench B-L3); pause between segments
                 raise MotionError(
                     f"axis {axis}: cannot pause a {rt.current_kind} operation"
                 )
@@ -587,7 +687,8 @@ class EngineController(MotionController):
         return {
             "axes": sorted(self._axes),
             "max_axes": 6,
-            "interpolation": False,       # deferred (PRD Q4)
+            "interpolation": True,        # v1.1: move_line via Line_2Axis
+            "line_axes": 2,               # 3-axis interpolation still deferred
             "continuous_jog": False,      # emulated (PRD Q6)
             "pause_resume": True,         # vendor Pause_Run/Resume_Run (bench B4)
             "encoder_feedback": True,
@@ -695,7 +796,9 @@ class EngineController(MotionController):
                              cmd.handle.description, exc)
                 cmd.handle._finish_error(exc)
                 with self._state_lock:
-                    if isinstance(exc, (LimitHitError, MoveTimeoutError)):
+                    # line moves attribute faults to the tripped axis themselves
+                    if (cmd.kind != _KIND_LINE
+                            and isinstance(exc, (LimitHitError, MoveTimeoutError))):
                         rt.fault = str(exc)
                 self._flush_axis(rt, MoveCancelledError(f"previous command failed: {exc}"),
                                  abort_running=False)
@@ -721,6 +824,8 @@ class EngineController(MotionController):
             self._exec_move(rt, cmd)
         elif cmd.kind == _KIND_CREEP:
             self._exec_creep(rt, cmd)
+        elif cmd.kind == _KIND_LINE:
+            self._exec_line(rt, cmd)
         else:  # pragma: no cover
             raise MotionError(f"unknown command kind {cmd.kind}")
 
@@ -831,6 +936,151 @@ class EngineController(MotionController):
                     self._ll_stop(axis, immediate=True)
                 raise MoveTimeoutError(f"axis {axis}: range search watchdog expired")
             time.sleep(self._poll_sleep_s)
+
+    def _exec_line(self, rt: _AxisRuntime, cmd: _Cmd) -> None:
+        """Barrier for a coordinated line move (FR-LINE-02).
+
+        The last axis worker to arrive executes the move (all participating
+        axes are then idle at the head of their queues); the others hold their
+        axis until the shared handle finishes."""
+        group = cmd.group
+        assert group is not None
+        with group.lock:
+            group.arrived.add(rt.cfg.index)
+            executor = len(group.arrived) == len(group.axes)
+        if executor:
+            self._line_execute(rt, group, cmd.handle)
+        else:
+            self._line_follow(rt, cmd)
+
+    def _line_follow(self, rt: _AxisRuntime, cmd: _Cmd) -> None:
+        """Hold this axis until the shared handle finishes. Cleanup after a
+        failed line is done synchronously by the executor (it flushes every
+        participating queue *before* the handle finishes) — doing it here
+        would race with commands enqueued after the failure."""
+        group = cmd.group
+        assert group is not None
+        while not cmd.handle.finished:
+            if rt.abort.is_set() or self._shutdown.is_set():
+                # tell the executor (which may not have arrived yet) to bail;
+                # it finishes the shared handle as cancelled
+                group.abort.set()
+                return
+            time.sleep(self._poll_sleep_s)
+
+    def _line_abort_requested(self, group: _LineGroup) -> bool:
+        if group.abort.is_set() or self._shutdown.is_set():
+            return True
+        with self._state_lock:
+            if self._estop_latched:
+                return True
+        return any(self._axes[a].abort.is_set() for a in group.axes)
+
+    def _line_execute(self, rt: _AxisRuntime, group: _LineGroup,
+                      handle: MoveHandle) -> None:
+        try:
+            self._line_execute_inner(rt, group, handle)
+        except MoveCancelledError:
+            raise  # stop/estop already flushed the affected queues
+        except MotionError as exc:
+            # "previous command failed" semantics across BOTH axes, done here
+            # (before the handle finishes) so it cannot race with commands
+            # enqueued after the failure; the worker flushes rt's own queue.
+            for a in group.axes:
+                if a != rt.cfg.index:
+                    self._flush_axis(
+                        self._axes[a],
+                        MoveCancelledError(f"linked line move failed: {exc}"),
+                        abort_running=False,
+                    )
+            raise
+
+    def _line_execute_inner(self, rt: _AxisRuntime, group: _LineGroup,
+                            handle: MoveHandle) -> None:
+        axes = group.axes
+        if self._line_abort_requested(group):
+            raise MoveCancelledError("line move aborted by stop/estop/disconnect")
+
+        snap = self._snapshot(max_age=0.0)
+        directions: dict[int, int] = {}
+        length_sq = 0.0
+        for a in axes:
+            art = self._axes[a]
+            target = group.targets[a]
+            # dispatch-time re-validation per axis (FR-LINE-03 / FR-MOVE-03)
+            with self._state_lock:
+                if self._soft_limits_enabled and self._limits_known(art):
+                    lo, hi = art.soft_min, art.soft_max
+                    if not (lo - 1e-9 <= target <= hi + 1e-9):  # type: ignore[operator]
+                        raise SoftLimitError(
+                            f"axis {a}: dispatch line target {target:.3f} "
+                            f"outside [{lo:.3f}, {hi:.3f}]"
+                        )
+            delta = target - snap.positions[a]
+            directions[a] = 1 if delta > 1e-9 else (-1 if delta < -1e-9 else 0)
+            length_sq += delta * delta
+            if directions[a] > 0 and snap.limit_positive[a]:
+                raise LimitHitError(
+                    f"axis {a}: positive limit active, cannot move further positive")
+            if directions[a] < 0 and snap.limit_negative[a]:
+                raise LimitHitError(
+                    f"axis {a}: negative limit active, cannot move further negative")
+
+        if length_sq <= 1e-18:  # zero-length line: nothing to dispatch
+            handle._finish_ok({a: snap.positions[a] for a in axes})
+            return
+
+        logger.debug("line axes=%s -> %s speed=%s", axes, group.targets, group.speed)
+        self._ll_dispatch_retrying_busy(
+            rt,
+            lambda: self._ll_line(group.targets, group.speed, group.accel,
+                                  group.decel),
+        )
+        self._start_grace_wait(rt)
+
+        timeouts = [self._axes[a].cfg.move_timeout_s for a in axes]
+        configured = [t for t in timeouts if t is not None]
+        deadline = (time.monotonic() + max(configured)) if configured else None
+        stopped_reads = 0
+        while True:
+            if self._line_abort_requested(group):
+                with self._ll_lock:
+                    for a in axes:
+                        self._ll_stop(a, immediate=True)
+                raise MoveCancelledError("line move aborted by stop/estop/disconnect")
+            snap = self._snapshot()
+            for a in axes:
+                tripped = (snap.limit_positive[a] if directions[a] > 0
+                           else snap.limit_negative[a] if directions[a] < 0 else False)
+                if tripped:
+                    with self._ll_lock:
+                        for b in axes:
+                            self._ll_stop(b, immediate=True)
+                    side = "positive" if directions[a] > 0 else "negative"
+                    message = (f"axis {a}: {side} limit switch tripped during "
+                               f"line move")
+                    with self._state_lock:  # fault the tripped axis only
+                        self._axes[a].fault = message
+                    raise LimitHitError(message)
+            if all(self._is_stopped(a) for a in axes):
+                stopped_reads += 1
+                if stopped_reads >= 2:
+                    break
+            else:
+                stopped_reads = 0
+            if deadline is not None and time.monotonic() > deadline:
+                with self._ll_lock:
+                    for a in axes:
+                        self._ll_stop(a, immediate=True)
+                message = f"line move on axes {axes}: move watchdog expired"
+                with self._state_lock:  # cannot attribute a stall: fault both
+                    for a in axes:
+                        self._axes[a].fault = message
+                raise MoveTimeoutError(message)
+            time.sleep(self._poll_sleep_s)
+
+        final = self._snapshot(max_age=0.0)
+        handle._finish_ok({a: final.positions[a] for a in axes})
 
     def _poll_until_stopped(self, rt: _AxisRuntime, cmd: _Cmd, *,
                             check_limits: bool, direction: int = 0,

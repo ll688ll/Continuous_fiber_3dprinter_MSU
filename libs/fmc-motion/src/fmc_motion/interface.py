@@ -28,8 +28,11 @@ class MoveHandle:
     returns False if the timeout elapsed first.
     """
 
-    def __init__(self, axis: int, kind: str, description: str) -> None:
+    def __init__(self, axis: int, kind: str, description: str,
+                 axes: Optional[tuple[int, ...]] = None) -> None:
         self.axis = axis
+        #: all participating axes; more than one for coordinated line moves
+        self.axes: tuple[int, ...] = tuple(axes) if axes else (axis,)
         self.kind = kind
         self.description = description
         self.state = MoveState.QUEUED
@@ -53,11 +56,15 @@ class MoveHandle:
         self.state = MoveState.RUNNING
 
     def _finish_ok(self, result: Any = None) -> None:
+        if self._done.is_set():  # a line handle sits in two queues; first finish wins
+            return
         self.result = result
         self.state = MoveState.DONE
         self._done.set()
 
     def _finish_error(self, error: MotionError, cancelled: bool = False) -> None:
+        if self._done.is_set():
+            return
         self.error = error
         self.state = MoveState.CANCELLED if cancelled else MoveState.FAILED
         self._done.set()
@@ -197,6 +204,17 @@ class MotionController(ABC):
         speed: Optional[float] = None, accel: Optional[float] = None, decel: Optional[float] = None,
         wait: bool = True, timeout: Optional[float] = None,
     ) -> MoveHandle: ...
+
+    @abstractmethod
+    def move_line(
+        self, targets: Mapping[int, float], *,
+        speed: Optional[float] = None, accel: Optional[float] = None, decel: Optional[float] = None,
+        wait: bool = True, timeout: Optional[float] = None,
+    ) -> MoveHandle:
+        """Coordinated straight-line move (v1.1): absolute ``targets`` on
+        exactly two axes; ``speed``/``accel``/``decel`` are composite (path)
+        values, defaulting to the participating axes' configured minima."""
+        ...
 
     @abstractmethod
     def jog(self, axis: int, direction: int, speed: Optional[float] = None) -> MoveHandle: ...

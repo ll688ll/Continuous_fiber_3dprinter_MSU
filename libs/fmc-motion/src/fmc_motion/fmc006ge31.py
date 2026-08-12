@@ -99,6 +99,8 @@ _SIGNATURES: dict[str, tuple[list, object]] = {
     "FMC006GE31_Close_Device": ([c_int32], c_int32),
     "FMC006GE31_Jog_Single_Axis": (
         [c_int32, c_int32, c_float, c_float, c_float, c_float, c_int32], c_int32),
+    "FMC006GE31_Line_2Axis": (
+        [c_int32, c_uint32, c_float, c_float, c_float, c_float, c_float], c_int32),
     "FMC006GE31_Home_Single_Axis": (
         [c_int32, c_int32, c_float, c_float, c_float, c_int32], c_int32),
     "FMC006GE31_Check_Axis_Is_Stop": ([c_int32, c_int32], c_int32),
@@ -222,6 +224,24 @@ class FMC006GE31Controller(EngineController):
                 _MODE_RELATIVE if relative else _MODE_ABSOLUTE,
             )
         self._check(rc, "FMC006GE31_Jog_Single_Axis")
+
+    def _ll_line(self, targets: dict[int, float], speed: float, accel: float,
+                 decel: float) -> None:
+        """Vendor 2-axis line interpolation (v1.1). UNTESTED on hardware until
+        printer-PRD bench B-L1/B-L2: assumes endX/endY are ABSOLUTE machine
+        coordinates ("from the current point" per the header comment), in
+        ascending-axis order of the mask bits."""
+        axes = sorted(targets)
+        mask = 0
+        for a in axes:
+            mask |= 1 << a
+        with self._dll_lock:
+            rc = self._lib().FMC006GE31_Line_2Axis(
+                self._id, mask,
+                c_float(targets[axes[0]]), c_float(targets[axes[1]]),
+                c_float(speed), c_float(accel), c_float(decel),
+            )
+        self._check(rc, "FMC006GE31_Line_2Axis")
 
     def _ll_home(self, axis: int, speed: float, accdec: float, fall_step: float,
                  direction_positive: bool) -> None:

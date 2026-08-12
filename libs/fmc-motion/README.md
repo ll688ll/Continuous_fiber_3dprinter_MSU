@@ -40,8 +40,14 @@ with create_controller("machine.json", mode="sim") as ctrl:   # or mode="real"
     print(report.to_json())
     ctrl.configure_axis(0, speed=100, accel=500, decel=500)
     ctrl.move_absolute(0, 25.0)         # blocking; wait=False for async
+    ctrl.move_line({0: 50.0, 1: 30.0})  # coordinated straight XY line (v1.1)
     print(ctrl.get_status().positions)
 ```
+
+`move_line` (v1.1) runs one interpolated straight-line move across exactly two
+axes (vendor `Line_2Axis`); `speed`/`accel`/`decel` are composite path values.
+Real-hardware validation of the vendor call is pending (printer PRD bench
+B-L1..B-L4) — sim is fully supported.
 
 Minimal config (JSON):
 

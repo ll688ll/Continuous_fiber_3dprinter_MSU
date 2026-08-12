@@ -52,7 +52,7 @@ from .interface import (
 from .sim import SimMotionController
 from .fmc006ge31 import FMC006GE31Controller
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"  # v1.1: coordinated 2-axis line moves (move_line)
 
 ConfigLike = Union[str, Path, dict, ControllerConfig]
 

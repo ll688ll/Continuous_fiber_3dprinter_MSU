@@ -286,10 +286,10 @@ class SimMotionController(EngineController):
     def _consume_injected_error(self) -> None:
         if self._inject_vendor_errors:
             code = self._inject_vendor_errors.pop(0)
-            raise HardwareFaultError(
-                f"injected vendor error {code} ({describe_vendor_code(code)})",
-                vendor_code=code,
-            )
+            message = f"injected vendor error {code} ({describe_vendor_code(code)})"
+            if code == -10:  # parity with the real backend's rc mapping
+                raise DeviceBusyError(message)
+            raise HardwareFaultError(message, vendor_code=code)
 
     def _ll_connect(self) -> None:
         if self._inject_connect_fail is not None:
@@ -318,6 +318,31 @@ class SimMotionController(EngineController):
             model.start_move(t, target_internal, speed, accel, decel)
         self._record("move", axis=axis, value=value, relative=relative,
                      speed=speed, accel=accel, decel=decel)
+
+    def _ll_line(self, targets: dict[int, float], speed: float, accel: float,
+                 decel: float) -> None:
+        """Coordinated line (FR-LINE-05): per-axis profiles scaled from the
+        composite values (v_i = v*|d_i|/L) share one time base, so both axes
+        start/finish together and the traced XY path is straight."""
+        self._consume_injected_error()
+        with self._model_lock:
+            t = self._now()
+            models = {a: self._models[a] for a in targets}
+            for a, model in models.items():
+                if not model.is_stopped(t):
+                    raise DeviceBusyError(f"axis {a} busy (vendor -10)")
+            internal = {a: m.to_internal(targets[a]) for a, m in models.items()}
+            deltas = {a: internal[a] - m.current(t)[0] for a, m in models.items()}
+            length = math.sqrt(sum(d * d for d in deltas.values()))
+            if length > 1e-12:
+                for a, model in models.items():
+                    scale = abs(deltas[a]) / length
+                    if scale <= 1e-12:
+                        continue  # this axis does not move on this line
+                    model.start_move(t, internal[a], speed * scale,
+                                     accel * scale, decel * scale)
+        self._record("line", targets=dict(targets), speed=speed,
+                     accel=accel, decel=decel)
 
     def _ll_home(self, axis: int, speed: float, accdec: float, fall_step: float,
                  direction_positive: bool) -> None:
