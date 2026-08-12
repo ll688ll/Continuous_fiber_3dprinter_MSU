@@ -423,14 +423,23 @@ class EngineController(MotionController):
     def estop(self) -> None:
         """Software e-stop: the vendor global Stop_Run is unused, so this is an
         immediate per-axis stop across all axes plus a latched lockout
-        (FR-STOP-02)."""
+        (FR-STOP-02).
+
+        Bench test B3 measured ~120 ms per DLL round-trip, so the serial stop
+        loop is ordered moving-axes-first (from the cached snapshot — no fresh
+        status call, that would cost another round-trip) to bound the time
+        until every *moving* axis has been commanded to stop."""
         logger.warning("ESTOP")
         with self._state_lock:
             self._estop_latched = True
+        axes = list(self._axes.values())
+        snap = self._snap_cache
+        if snap is not None:
+            axes.sort(key=lambda rt: 0 if snap.speeds.get(rt.cfg.index, 0.0) > 1e-3 else 1)
         with self._ll_lock:
-            for rt in self._axes.values():
+            for rt in axes:
                 self._ll_stop(rt.cfg.index, immediate=True)
-        for rt in self._axes.values():
+        for rt in axes:
             self._flush_axis(rt, EStopActiveError("emergency stop"))
 
     def clear_estop(self) -> None:

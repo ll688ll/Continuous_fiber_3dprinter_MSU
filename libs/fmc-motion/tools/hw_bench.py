@@ -123,11 +123,20 @@ def bench_b4_pause_resume(dll, dev_id, axis, dist, speed) -> None:
 
 def bench_b1_limit_hit(dll, dev_id, buf, axis, creep_speed, max_search) -> None:
     print("\n=== B1: behavior when a limit switch trips mid-move ===")
-    print(f"  This drives axis {axis} at {creep_speed} mm/s toward the POSITIVE")
-    print(f"  limit switch (up to {max_search} mm) and watches what the")
-    print("  controller does when the switch trips.")
-    if not ask("Travel clear, switch wired, hand on e-stop. Proceed?"):
+    print(f"  First HOMES axis {axis} to the negative switch (known frame),")
+    print(f"  then drives at {creep_speed} mm/s toward the POSITIVE limit")
+    print(f"  switch (up to {max_search} mm) and watches what the controller")
+    print("  does when the switch trips.")
+    if not ask("Travel clear, switches wired, hand on e-stop. Proceed?"):
         return
+    print("  homing to negative limit...")
+    rc = dll.FMC006GE31_Home_Single_Axis(dev_id, axis, c_float(15.0),
+                                         c_float(150.0), c_float(2.0), 2)
+    if rc != 0 or not wait_axis_stop(dll, dev_id, axis, timeout=120):
+        RESULTS["B1_limit_hit"] = {"behavior": f"homing failed (rc={rc})"}
+        print(f"  homing failed rc={rc}; skipping B1")
+        return
+    print("  homed; creeping toward positive switch...")
     dll.FMC006GE31_Jog_Single_Axis(dev_id, axis, c_float(max_search),
                                    c_float(creep_speed), c_float(100), c_float(100), 1)
     trip_pos = None
@@ -191,9 +200,17 @@ def main() -> None:
         raise SystemExit("bench tests require Windows (vendor DLL)")
 
     dll = _bind(ctypes.WinDLL(str(vendor_dll_path())))
-    rc = dll.FMC006GE31_Open_Device(args.dev_id, args.ip.encode(), args.port, 0)
+    rc = -1
+    for attempt in range(3):  # transient rc=-5 observed on first connect
+        rc = dll.FMC006GE31_Open_Device(args.dev_id, args.ip.encode(), args.port, 0)
+        if rc == 0:
+            break
+        print(f"Open_Device attempt {attempt + 1} failed rc={rc}; retrying...")
+        dll.FMC006GE31_Close_Device(args.dev_id)
+        time.sleep(1.5)
     if rc != 0:
-        raise SystemExit(f"Open_Device failed rc={rc}")
+        raise SystemExit(f"Open_Device failed rc={rc} (if a previous run "
+                         f"crashed without Close_Device, power-cycle the controller)")
     print(f"connected to {args.ip}:{args.port} (id={args.dev_id})")
     buf = _MachineStatus()
     try:

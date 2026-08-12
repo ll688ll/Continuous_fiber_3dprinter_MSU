@@ -1,0 +1,24 @@
+{
+  "B3_status_latency": {
+    "avg_ms": 118.001,
+    "p95_ms": 120.131,
+    "max_ms": 120.425
+  },
+  "B2_busy_axis": {
+    "first_rc": 0,
+    "second_rc_while_moving": -10,
+    "completed": true
+  },
+  "B4_pause_resume": {
+    "pause_rc": 0,
+    "resume_rc": 0,
+    "held_position_while_paused": true,
+    "completed_after_resume": true
+  },
+  "B1_limit_hit": {
+    "behavior": "finished-search-distance-without-trip (check wiring)",
+    "trip_position_mm": null,
+    "final_position_mm": 82.4280014038086,
+    "overrun_mm": null
+  }
+}

@@ -29,23 +29,34 @@ from fmc_motion import (  # noqa: E402
 
 log = logging.getLogger("acceptance")
 
-DEFAULT_CONFIG = {
-    "connection": {"device_id": 1, "ip": "192.168.0.30", "port": 8088},
-    "poll_interval_s": 0.05,
-    "axes": [
-        {
-            "index": 0,
-            "name": "X",
-            "homing": {"direction": "negative", "speed": 20, "accdec": 200,
-                       "fall_step": 2},
-            "defaults": {"speed": 50, "accel": 300, "decel": 300},
-            "max": {"speed": 200, "accel": 1000, "decel": 1000},
-            "self_check": {"creep_speed": 5, "max_search_mm": 500, "margin_mm": 2},
-            "jog": {"speed": 20, "max_step_unhomed": 5},
-        },
-    ],
-    "sim": {"time_scale": 10.0, "axes": {"0": {"travel_mm": 200}}},
-}
+AXIS_NAMES = ("X", "Y", "Z", "X1", "Y1", "Z1")
+
+
+def default_config(axes: list[int], ip: str) -> dict:
+    """Built-in template covering exactly the requested axes.
+
+    poll_interval_s 0.25 comes from bench B3: one status round-trip is ~120 ms.
+    """
+    return {
+        "connection": {"device_id": 1, "ip": ip, "port": 8088},
+        "poll_interval_s": 0.25,
+        "axes": [
+            {
+                "index": i,
+                "name": AXIS_NAMES[i],
+                "homing": {"direction": "negative", "speed": 20, "accdec": 200,
+                           "fall_step": 2},
+                "defaults": {"speed": 50, "accel": 300, "decel": 300},
+                "max": {"speed": 200, "accel": 1000, "decel": 1000},
+                "self_check": {"creep_speed": 5, "max_search_mm": 500,
+                               "margin_mm": 2},
+                "jog": {"speed": 20, "max_step_unhomed": 5},
+            }
+            for i in axes
+        ],
+        "sim": {"time_scale": 10.0,
+                "axes": {str(i): {"travel_mm": 200} for i in axes}},
+    }
 
 
 def run(ctrl, axes: list[int], report: dict) -> None:
@@ -130,8 +141,9 @@ def run(ctrl, axes: list[int], report: dict) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", help="machine config JSON/YAML (default: built-in single-axis template)")
+    ap.add_argument("--config", help="machine config JSON/YAML (default: built-in template for --axes)")
     ap.add_argument("--axes", default="0", help="comma-separated axis indices")
+    ap.add_argument("--ip", default="192.168.0.30")
     ap.add_argument("--sim", action="store_true", help="dry-run in sim mode")
     ap.add_argument("--out", default="hw_acceptance_report.json")
     args = ap.parse_args()
@@ -139,7 +151,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(message)s")
     axes = [int(a) for a in args.axes.split(",")]
-    config = args.config if args.config else DEFAULT_CONFIG
+    config = args.config if args.config else default_config(axes, args.ip)
     mode = "sim" if args.sim else "real"
 
     report: dict = {"mode": mode, "axes": axes,

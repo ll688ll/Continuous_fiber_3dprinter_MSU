@@ -12,11 +12,15 @@ match the Python interpreter.
 from __future__ import annotations
 
 import ctypes
+import logging
 import sys
 import threading
+import time
 from ctypes import Structure, byref, c_char_p, c_float, c_int32, c_uint32
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("fmc_motion")
 
 from .config import ControllerConfig
 from .errors import (
@@ -99,11 +103,25 @@ class FMC006GE31Controller(EngineController):
     #: demo waits 1 s before polling Check_Axis_Is_Stop; 0.3 s is a starting
     #: point to be validated in the M3 bench tests)
     DEFAULT_START_GRACE_S = 0.3
+    #: bench B3 (2026-08-11): one status round-trip is ~120 ms over TCP, so
+    #: polling faster than this just queues up on the link
+    MIN_SANE_POLL_S = 0.15
+    #: Open_Device occasionally fails transiently (rc=-5 observed on the lab
+    #: machine right before a successful retry)
+    CONNECT_ATTEMPTS = 3
+    CONNECT_RETRY_DELAY_S = 1.5
 
     def __init__(self, config: ControllerConfig) -> None:
         super().__init__(config)
         if config.move_start_grace_s is None:
             self._start_grace = self.DEFAULT_START_GRACE_S
+        if config.poll_interval_s < self.MIN_SANE_POLL_S:
+            logger.warning(
+                "poll_interval_s=%.3f is below the measured DLL round-trip "
+                "(~0.12 s, bench B3); polling will effectively run at the link "
+                "rate — consider poll_interval_s >= 0.25",
+                config.poll_interval_s,
+            )
         self._dll: Optional[ctypes.WinDLL] = None
         self._id = config.connection.device_id
         self._status_buf = _MachineStatus()
@@ -136,13 +154,28 @@ class FMC006GE31Controller(EngineController):
             raise ControllerConnectionError(f"vendor DLL not found: {dll_path}")
         dll = _bind(ctypes.WinDLL(str(dll_path)))
         c = self._cfg.connection
-        rc = dll.FMC006GE31_Open_Device(
-            self._id, c.ip.encode("utf-8"), c.port, c.tcp_mode
-        )
+        rc = 0
+        for attempt in range(1, self.CONNECT_ATTEMPTS + 1):
+            rc = dll.FMC006GE31_Open_Device(
+                self._id, c.ip.encode("utf-8"), c.port, c.tcp_mode
+            )
+            if rc == 0:
+                break
+            logger.warning(
+                "Open_Device attempt %d/%d failed rc=%s (%s); retrying in %.1f s",
+                attempt, self.CONNECT_ATTEMPTS, rc, describe_vendor_code(rc),
+                self.CONNECT_RETRY_DELAY_S,
+            )
+            # a half-open session from a crashed process can linger; Close then retry
+            dll.FMC006GE31_Close_Device(self._id)
+            if attempt < self.CONNECT_ATTEMPTS:
+                time.sleep(self.CONNECT_RETRY_DELAY_S)
         if rc != 0:
             raise ControllerConnectionError(
-                f"FMC006GE31_Open_Device({c.ip}:{c.port}) failed: rc={rc} "
-                f"({describe_vendor_code(rc)})",
+                f"FMC006GE31_Open_Device({c.ip}:{c.port}) failed after "
+                f"{self.CONNECT_ATTEMPTS} attempts: rc={rc} "
+                f"({describe_vendor_code(rc)}); if a previous run crashed "
+                f"without disconnecting, power-cycle the controller",
                 vendor_code=rc,
             )
         self._dll = dll

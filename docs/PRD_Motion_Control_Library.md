@@ -332,13 +332,45 @@ consume the library through its existing HAL contract.
 | Q6 | Continuous jog | DLL has none (manual confirms `Jog_Single_Axis` is position-bounded p2p) → emulate via bounded move + stop |
 | Q7 | Packaging | Standalone package `fmc_motion` in `libs/fmc-motion/`, no UI deps |
 
-## 10. Remaining open items (bench tests, not blockers)
-- **B1**: What does the controller do when a limit switch trips mid-move —
-  hard stop, decel stop, or nothing? (Drives FR-HOME-07 / FR-STOP-04 details.)
-- **B2**: Exact busy-axis behavior: does `Jog_Single_Axis` on a moving axis
-  return −10, or 0 with no action?
-- **B3**: DLL call round-trip latency over TCP → sets safe status-polling rate
-  and queue-dispatch poll interval.
-- **B4**: `Pause_Run`/`Resume_Run` exist in the header but are undocumented in
-  the manual — verify whether they work for single-axis moves (would improve
-  pause behavior for the future printer app).
+## 10. Bench test results (lab run 2026-08-11, axes 0 and 1)
+
+- **B2 — busy axis: RESOLVED.** `Jog_Single_Axis` on a moving axis returns
+  **−10** explicitly (not silently ignored). The library-side queue design
+  stands as specified.
+- **B3 — latency: RESOLVED.** One `Get_Machine_Status` round-trip is
+  **~118 ms avg / ~120 ms p95** over TCP. Consequences applied:
+  - real-mode `poll_interval_s` should be ≥ 0.25 s (backend logs a warning
+    below 0.15 s); sim keeps fast polling;
+  - a serial 6-axis e-stop loop costs ≈ 0.72–0.85 s worst-case — above the
+    500 ms target. Measured single-axis `estop()` dispatch: **139.7 ms**.
+    Mitigation implemented: the e-stop loop stops **moving axes first** (from
+    the cached status snapshot), so the ≤ 500 ms target is interpreted per
+    moving axis (≤ ~3 simultaneously moving axes). Full-fleet timing to be
+    re-measured when more axes are wired; if the vendor confirms the DLL is
+    thread-safe, parallel stop calls are the next lever.
+- **B4 — Pause/Resume: RESOLVED, they work.** `Pause_Run`/`Resume_Run` on a
+  single-axis move returned rc=0, held position while paused, and completed
+  after resume. Candidate `pause(axis)`/`resume(axis)` API for M4 (valuable
+  for the printer app).
+- **B1 — limit-hit behavior: PARTIALLY RESOLVED.**
+  - Axis 0: the library's self-check creep **did** detect the positive limit
+    bit and discovered span 280.6 mm — limit sensing works end-to-end for
+    axis 0, and FR-HOME-07 (library monitors and stops) is retained.
+  - Axis 1 anomaly: commanded +300 mm, the controller **stopped it on its own
+    at ~82 mm** and bit 1 of `limitPStatus` was never observed set. Suspected
+    switch wiring / input mapping issue. Diagnostic: `tools/limit_monitor.py`
+    (press each switch by hand, watch raw `limitNStatus`/`limitPStatus` hex).
+  - The raw bench ran unhomed (arbitrary frame) in this session;
+    `hw_bench.py` now homes before B1 so a re-run gives interpretable trip
+    positions.
+- **Connection note:** one transient `Open_Device` rc=−5 was observed before a
+  successful retry; the backend and tools now retry 3× (with `Close_Device`
+  between attempts). If a run crashes without disconnecting, the controller
+  may need a power cycle before it accepts new connections.
+
+### Remaining open items
+- Axis 1 positive-limit wiring/mapping (use `tools/limit_monitor.py`).
+- Re-run B1 (now homed) to record trip position + overrun, confirming whether
+  the controller hardware-stops on a limit or relies on the library.
+- Re-measure e-stop dispatch with >2 axes wired; ask vendor about DLL thread
+  safety for parallel per-axis stops.
