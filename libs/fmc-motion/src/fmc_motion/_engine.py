@@ -122,6 +122,10 @@ class EngineController(MotionController):
 
         # backend may override when config leaves it None (real: 0.3 s, sim: 0)
         self._start_grace = config.move_start_grace_s or 0.0
+        # wall-clock sleep between polls; the sim backend divides this by
+        # time_scale so accelerated sim keeps real-mode poll granularity
+        # relative to motion (same mm-per-poll)
+        self._poll_sleep_s = config.poll_interval_s
         self._ll_lock = threading.RLock()      # serializes all _ll_* calls
         self._state_lock = threading.RLock()   # engine bookkeeping
         self._connected = False
@@ -269,6 +273,13 @@ class EngineController(MotionController):
         sc = rt.cfg.self_check
         rep = SelfCheckAxisReport(axis=axis, name=rt.cfg.name, passed=False)
         t0 = time.monotonic()
+        # Self-check re-measures the range, so it must run with soft limits
+        # suspended: the creep deliberately travels to the physical switch,
+        # which lies OUTSIDE any previously discovered soft range. Restored
+        # on failure; replaced by the new discovery on success.
+        with self._state_lock:
+            saved_limits = (rt.soft_min, rt.soft_max)
+            rt.soft_min = rt.soft_max = None
         try:
             with self._state_lock:
                 if not rt.queue.empty():
@@ -343,6 +354,8 @@ class EngineController(MotionController):
             rep.passed = True
         except MotionError as exc:
             rep.error = f"{type(exc).__name__}: {exc}"
+            with self._state_lock:  # keep the previously known working range
+                rt.soft_min, rt.soft_max = saved_limits
         rep.duration_s = round(time.monotonic() - t0, 3)
         return rep
 
@@ -446,7 +459,7 @@ class EngineController(MotionController):
                 return True
             if deadline is not None and time.monotonic() > deadline:
                 return False
-            time.sleep(self._cfg.poll_interval_s)
+            time.sleep(self._poll_sleep_s)
 
     # ------------------------------------------------------------------- queue
     def get_queue(self, axis: int) -> list[str]:
@@ -806,7 +819,7 @@ class EngineController(MotionController):
                     if getattr(confirm, limit_key)[axis]:
                         finish(confirm.positions[axis])
                         return
-                    time.sleep(self._cfg.poll_interval_s)
+                    time.sleep(self._poll_sleep_s)
                 pos = self._snapshot(max_age=0.0).positions[axis]
                 raise SelfCheckError(
                     f"axis {axis}: stopped at {pos:.2f} mm without the far "
@@ -817,7 +830,7 @@ class EngineController(MotionController):
                 with self._ll_lock:
                     self._ll_stop(axis, immediate=True)
                 raise MoveTimeoutError(f"axis {axis}: range search watchdog expired")
-            time.sleep(self._cfg.poll_interval_s)
+            time.sleep(self._poll_sleep_s)
 
     def _poll_until_stopped(self, rt: _AxisRuntime, cmd: _Cmd, *,
                             check_limits: bool, direction: int = 0,
@@ -835,8 +848,8 @@ class EngineController(MotionController):
             if rt.paused:  # hold: a paused axis reads stopped but is not done
                 stopped_reads = 0
                 if deadline is not None:
-                    deadline += self._cfg.poll_interval_s
-                time.sleep(self._cfg.poll_interval_s)
+                    deadline += self._poll_sleep_s
+                time.sleep(self._poll_sleep_s)
                 continue
             if check_limits:
                 snap = self._snapshot()
@@ -861,7 +874,7 @@ class EngineController(MotionController):
                 raise MoveTimeoutError(
                     f"axis {axis}: move watchdog ({rt.cfg.move_timeout_s}s) expired"
                 )
-            time.sleep(self._cfg.poll_interval_s)
+            time.sleep(self._poll_sleep_s)
 
     def _ll_dispatch_retrying_busy(self, rt: _AxisRuntime, dispatch) -> None:
         """Dispatch a motion call, retrying on vendor -10 (device busy).
@@ -881,7 +894,7 @@ class EngineController(MotionController):
                 logger.debug("axis %s busy (-10), retry %d/%d",
                              rt.cfg.index, attempt + 1, attempts)
                 self._raise_if_aborted(rt)
-                time.sleep(max(self._cfg.poll_interval_s, 0.1))
+                time.sleep(max(self._poll_sleep_s, 0.1))
 
     def _move_deadline(self, rt: _AxisRuntime) -> Optional[float]:
         if rt.cfg.move_timeout_s is None:
@@ -896,7 +909,7 @@ class EngineController(MotionController):
         end = time.monotonic() + self._start_grace
         while time.monotonic() < end:
             self._raise_if_aborted(rt)
-            time.sleep(min(0.05, self._cfg.poll_interval_s))
+            time.sleep(min(0.05, self._poll_sleep_s))
 
     def _raise_if_aborted(self, rt: _AxisRuntime) -> None:
         if rt.abort.is_set() or self._shutdown.is_set():
@@ -916,7 +929,7 @@ class EngineController(MotionController):
                 stopped_reads = 0
             if time.monotonic() > deadline:
                 return
-            time.sleep(self._cfg.poll_interval_s / 2)
+            time.sleep(self._poll_sleep_s / 2)
 
     def _is_stopped(self, axis: int) -> bool:
         with self._ll_lock:
@@ -937,7 +950,7 @@ class EngineController(MotionController):
 
     def _snapshot(self, max_age: Optional[float] = None) -> LLSnapshot:
         if max_age is None:
-            max_age = self._cfg.poll_interval_s / 2
+            max_age = self._poll_sleep_s / 2
         now = time.monotonic()
         cached = self._snap_cache
         if cached is not None and (now - self._snap_time) <= max_age:

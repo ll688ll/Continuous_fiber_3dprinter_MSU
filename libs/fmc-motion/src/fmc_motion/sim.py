@@ -228,6 +228,10 @@ class SimMotionController(EngineController):
     def __init__(self, config: ControllerConfig) -> None:
         super().__init__(config)
         self._time_scale = config.sim.time_scale
+        # keep real-mode poll granularity in *sim* time: a config tuned for
+        # hardware (e.g. poll 0.25 s) must not overshoot switches just because
+        # the sim clock runs time_scale x faster
+        self._poll_sleep_s = config.poll_interval_s / self._time_scale
         self._epoch: Optional[float] = None
         self._models: dict[int, _SimAxis] = {}
         self._model_lock = threading.RLock()

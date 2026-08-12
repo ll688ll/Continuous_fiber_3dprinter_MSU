@@ -1,0 +1,47 @@
+{
+  "connection": {"device_id": 1, "ip": "192.168.0.30", "port": 8088, "tcp_mode": 0},
+  "poll_interval_s": 0.25,
+  "axes": [
+    {
+      "index": 0,
+      "name": "X",
+      "enabled": true,
+      "homing": {"direction": "negative", "speed": 20.0, "accdec": 200.0, "fall_step": 2.0},
+      "defaults": {"speed": 50.0, "accel": 300.0, "decel": 300.0},
+      "max": {"speed": 200.0, "accel": 1000.0, "decel": 1000.0},
+      "self_check": {"creep_speed": 5.0, "max_search_mm": 500.0, "margin_mm": 2.0, "park_offset_mm": 3.0},
+      "jog": {"speed": 20.0, "max_step_unhomed": 5.0},
+      "allow_unhomed": false,
+      "soft_limits": {
+        "min": 2.0,
+        "max": 281.16,
+        "span_mm": 283.16,
+        "discovered_at": "2026-08-12T02:45:11+00:00"
+      }
+    },
+    {
+      "index": 1,
+      "name": "Y",
+      "enabled": true,
+      "homing": {"direction": "negative", "speed": 20.0, "accdec": 200.0, "fall_step": 2.0},
+      "defaults": {"speed": 50.0, "accel": 300.0, "decel": 300.0},
+      "max": {"speed": 200.0, "accel": 1000.0, "decel": 1000.0},
+      "self_check": {"creep_speed": 5.0, "max_search_mm": 300.0, "margin_mm": 2.0, "park_offset_mm": 3.0},
+      "jog": {"speed": 20.0, "max_step_unhomed": 5.0},
+      "allow_unhomed": false,
+      "soft_limits": {
+        "min": 2.0,
+        "max": 83.42,
+        "span_mm": 85.42,
+        "discovered_at": "2026-08-12T02:45:38+00:00"
+      }
+    }
+  ],
+  "sim": {
+    "time_scale": 10.0,
+    "axes": {
+      "0": {"travel_mm": 283.0, "start_pos_mm": 140.0, "overtravel_mm": 2.0},
+      "1": {"travel_mm": 85.0, "start_pos_mm": 40.0, "overtravel_mm": 2.0}
+    }
+  }
+}

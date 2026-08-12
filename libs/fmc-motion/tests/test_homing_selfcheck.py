@@ -85,6 +85,31 @@ def test_self_check_far_limit_never_trips(sim):
     assert "without the far limit switch triggering" in report.axis(0).error
 
 
+def test_self_check_repeatable_with_existing_limits(sim):
+    """Re-running self-check on an already-checked axis must work: the creep
+    travels outside the previously discovered soft range by design, so limits
+    are suspended during the check (regression: lab config with saved limits
+    made every re-check fail with SoftLimitError)."""
+    ctrl = sim
+    first = ctrl.self_check(axes=[0])
+    assert first.passed
+    second = ctrl.self_check(axes=[0])
+    assert second.passed, second.axis(0).error
+    assert second.axis(0).span_mm == pytest.approx(first.axis(0).span_mm, abs=2.5)
+
+
+def test_failed_self_check_keeps_previous_limits(sim):
+    ctrl = sim
+    assert ctrl.self_check(axes=[0]).passed
+    before = ctrl.get_status().axes[0]
+    ctrl.inject_limit_stuck(0, "positive", False)  # break the far switch
+    report = ctrl.self_check(axes=[0])
+    assert not report.axis(0).passed
+    after = ctrl.get_status().axes[0]
+    assert after.soft_limit_min == before.soft_limit_min
+    assert after.soft_limit_max == before.soft_limit_max
+
+
 def test_self_check_refused_when_estopped(sim):
     ctrl = sim
     ctrl.estop()
