@@ -46,6 +46,29 @@ _HOME_NEGATIVE_LIMIT = 2
 _ESTOP_TRIGGERED = 2
 
 
+class _MachineDevicePara(Structure):
+    """Vendor machine_device_para struct (read via Get_Device_Para).
+
+    Read-only in this library: Set_Device_Para is deliberately NOT wrapped —
+    the manual warns misconfiguring it can damage the machine; change these
+    in the vendor's own tool."""
+
+    _fields_ = [
+        ("id", c_uint32),
+        ("bound232", c_uint32),
+        ("bound485", c_uint32),
+        ("boundCAN", c_uint32),
+        ("ip", ctypes.c_ubyte * 4),
+        ("port", c_int32),
+        ("div", c_int32 * _MAX_AXIS),
+        ("lead", c_int32 * _MAX_AXIS),
+        ("softLimitMax", c_int32 * _MAX_AXIS),
+        ("softLimitMin", c_int32 * _MAX_AXIS),
+        ("homeTime", c_int32 * _MAX_AXIS),
+        ("encoderResolution", c_int32 * _MAX_AXIS),
+    ]
+
+
 class _MachineStatus(Structure):
     _fields_ = [
         ("encoderRealPos", c_float * _MAX_AXIS),
@@ -83,6 +106,7 @@ _SIGNATURES: dict[str, tuple[list, object]] = {
     "FMC006GE31_Get_Machine_Status": ([c_int32, ctypes.c_void_p], c_int32),
     "FMC006GE31_Pause_Run": ([c_int32, c_uint32], c_int32),
     "FMC006GE31_Resume_Run": ([c_int32, c_uint32], c_int32),
+    "FMC006GE31_Get_Device_Para": ([c_int32, ctypes.c_void_p], c_int32),
     "FMC006GE31_Get_Axis_Current_Pos": (
         [c_int32, c_int32, ctypes.POINTER(c_float)], c_int32),
     "FMC006GE31_Get_Axis_Current_Speed": (
@@ -219,6 +243,35 @@ class FMC006GE31Controller(EngineController):
                 self._id, axis, _STOP_IMMEDIATE if immediate else _STOP_DECEL
             )
         self._check(rc, "FMC006GE31_Stop_Single_Axis")
+
+    def read_device_parameters(self) -> dict:
+        """Read the controller's device parameters (read-only diagnostics).
+
+        Returns per-axis lead (mm/rev), div (pulses/rev), pulses_per_mm,
+        controller-side soft limits, home timeout, and encoder resolution.
+        Requires an active connection. Writing is intentionally unsupported."""
+        para = _MachineDevicePara()
+        with self._dll_lock:
+            rc = self._lib().FMC006GE31_Get_Device_Para(self._id, byref(para))
+        self._check(rc, "FMC006GE31_Get_Device_Para")
+        axes = {}
+        for i in range(_MAX_AXIS):
+            lead, div = int(para.lead[i]), int(para.div[i])
+            axes[i] = {
+                "lead_mm_per_rev": lead,
+                "div_pulses_per_rev": div,
+                "pulses_per_mm": (div / lead) if lead else None,
+                "soft_limit_positive_mm": int(para.softLimitMax[i]),
+                "soft_limit_negative_mm": int(para.softLimitMin[i]),
+                "home_timeout": int(para.homeTime[i]),
+                "encoder_resolution": int(para.encoderResolution[i]),
+            }
+        return {
+            "device_id": int(para.id),
+            "ip": ".".join(str(b) for b in para.ip),
+            "port": int(para.port),
+            "axes": axes,
+        }
 
     def _ll_pause(self, axis: int) -> None:
         # Pause_Run takes a bitmask of axes; validated on hardware in bench B4

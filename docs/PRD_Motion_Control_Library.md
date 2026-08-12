@@ -394,8 +394,25 @@ Full two-axis acceptance run **PASSED** after the start-latency fixes
   cheaper than a status read, so 6 axes project to ~120 ms, well inside the
   500 ms budget (supersedes the earlier ~0.85 s serial-loop concern).
 
+### Controller device parameters (vendor tool, observed 2026-08-11)
+The controller carries its own per-channel parameters (readable via
+`Get_Device_Para`; the library exposes them read-only through
+`FMC006GE31Controller.read_device_parameters()` and
+`tools/device_para_check.py`. Writing is intentionally unsupported — use the
+vendor application). Observed defaults and their implications:
+
+| Parameter | Value | Implication |
+|---|---|---|
+| lead / div | 10 mm / 5000 | 500 pulses/mm (2 um resolution); mm scaling **assumes a 10 mm screw lead on every channel** — verify physically per actuator |
+| encoder | 1000 /rev | encoder feedback resolution (100 counts/mm at lead 10) |
+| controller soft limits | X: ±2000 mm; **Y/Z/X1/Y1/Z1: ±200 mm** | the controller clamps motion independently of the library. A long actuator (>200 mm, like the 280 mm unit) only works on channel X unless the channel's limit is raised in the vendor tool |
+| Home Timeout | 10000 (ms) | homing a 280 mm axis from the far end at 20 mm/s takes ~14 s → **would exceed the timeout**; raise it (e.g. 30000) or home faster |
+
 ### Remaining open items
 - Re-measure e-stop dispatch when all 6 axes are wired (projection ~120 ms).
 - Ask vendor about DLL thread safety (only an optimization now).
-- M4: `printer_msu` adapter, packaging polish, pause/resume API
-  (B4-validated).
+- Physical scaling check per actuator (command 50 mm, measure with a ruler)
+  — especially the short 85 mm actuator, whose screw lead may differ.
+- Raise X's Home Timeout in the vendor tool (or home faster) before relying
+  on far-end homing.
+- Hardware-validate pause/resume through the library API.
