@@ -99,10 +99,11 @@ def _bind(dll: ctypes.WinDLL) -> ctypes.WinDLL:
 class FMC006GE31Controller(EngineController):
     """Real-hardware backend for FMC006GE31 controllers (Windows only)."""
 
-    #: default motion-start grace when the config leaves it unset (the vendor
-    #: demo waits 1 s before polling Check_Axis_Is_Stop; 0.3 s is a starting
-    #: point to be validated in the M3 bench tests)
-    DEFAULT_START_GRACE_S = 0.3
+    #: default motion-start grace when the config leaves it unset. Lab run
+    #: 2026-08-11: with 0.3 s, Check_Axis_Is_Stop still read "stopped" before
+    #: a just-dispatched home actually started, so the next command hit -10.
+    #: The vendor demo waits 1 s — use that.
+    DEFAULT_START_GRACE_S = 1.0
     #: bench B3 (2026-08-11): one status round-trip is ~120 ms over TCP, so
     #: polling faster than this just queues up on the link
     MIN_SANE_POLL_S = 0.15

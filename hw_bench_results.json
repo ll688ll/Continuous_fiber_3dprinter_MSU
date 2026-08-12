@@ -1,8 +1,8 @@
 {
   "B3_status_latency": {
-    "avg_ms": 118.001,
-    "p95_ms": 120.131,
-    "max_ms": 120.425
+    "avg_ms": 117.493,
+    "p95_ms": 120.118,
+    "max_ms": 120.297
   },
   "B2_busy_axis": {
     "first_rc": 0,
@@ -16,9 +16,9 @@
     "completed_after_resume": true
   },
   "B1_limit_hit": {
-    "behavior": "finished-search-distance-without-trip (check wiring)",
-    "trip_position_mm": null,
-    "final_position_mm": 82.4280014038086,
-    "overrun_mm": null
+    "behavior": "hardware-stopped (is_stop=1)",
+    "trip_position_mm": 85.4520034790039,
+    "final_position_mm": 85.4520034790039,
+    "overrun_mm": 0.0
   }
 }

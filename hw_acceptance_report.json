@@ -1,9 +1,40 @@
 {
   "mode": "real",
   "axes": [
+    0,
     1
   ],
-  "started": "2026-08-11 22:04:57",
-  "finished": "2026-08-11 22:04:57",
+  "started": "2026-08-11 22:20:24",
+  "self_check": {
+    "started_at": "2026-08-12T02:20:24+00:00",
+    "finished_at": "2026-08-12T02:21:43+00:00",
+    "axes": [
+      {
+        "axis": 0,
+        "name": "X",
+        "passed": true,
+        "error": null,
+        "limit_negative_before": true,
+        "limit_positive_before": false,
+        "span_mm": 283.1300048828125,
+        "soft_limit_min": 2,
+        "soft_limit_max": 281.1300048828125,
+        "duration_s": 60.776
+      },
+      {
+        "axis": 1,
+        "name": "Y",
+        "passed": false,
+        "error": "SelfCheckError: axis 1: far limit switch did not trigger within 500 mm search distance",
+        "limit_negative_before": false,
+        "limit_positive_before": false,
+        "span_mm": null,
+        "soft_limit_min": null,
+        "soft_limit_max": null,
+        "duration_s": 18.341
+      }
+    ]
+  },
+  "finished": "2026-08-11 22:21:43",
   "passed": false
 }

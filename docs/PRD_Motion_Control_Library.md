@@ -352,25 +352,39 @@ consume the library through its existing HAL contract.
   single-axis move returned rc=0, held position while paused, and completed
   after resume. Candidate `pause(axis)`/`resume(axis)` API for M4 (valuable
   for the printer app).
-- **B1 — limit-hit behavior: PARTIALLY RESOLVED.**
-  - Axis 0: the library's self-check creep **did** detect the positive limit
-    bit and discovered span 280.6 mm — limit sensing works end-to-end for
-    axis 0, and FR-HOME-07 (library monitors and stops) is retained.
-  - Axis 1 anomaly: commanded +300 mm, the controller **stopped it on its own
-    at ~82 mm** and bit 1 of `limitPStatus` was never observed set. Suspected
-    switch wiring / input mapping issue. Diagnostic: `tools/limit_monitor.py`
-    (press each switch by hand, watch raw `limitNStatus`/`limitPStatus` hex).
-  - The raw bench ran unhomed (arbitrary frame) in this session;
-    `hw_bench.py` now homes before B1 so a re-run gives interpretable trip
-    positions.
+- **B1 — limit-hit behavior: RESOLVED (second run, homed).** When a limit
+  switch trips mid-move, the controller **hardware-stops the axis itself**
+  (`is_stop=1`, measured overrun **0.000 mm**, trip at 85.452 mm on axis 1).
+  Library-side monitoring (FR-HOME-07) is retained as belt-and-braces and for
+  sim parity, but the hardware is safe on its own.
+- **Limit-switch wiring/mapping: CONFIRMED CORRECT** via `tools/limit_monitor.py`
+  hand-press test — axes 0/1 map to bits 0/1 of `limitNStatus`/`limitPStatus`
+  exactly as assumed. The earlier "axis 1 anomaly" was no fault at all:
+  **axis 1's actuator simply has ~85 mm travel** (vs ~280 mm on axis 0).
+- **Motion-start latency: NEW FINDING.** `Check_Axis_Is_Stop` still reads
+  "stopped" for up to ~1 s after a motion command is dispatched (this is why
+  the vendor demo sleeps 1 s). With the original 0.3 s grace this caused
+  intermittent self-check failures (a follow-up command hit −10, or a search
+  was declared finished before it started). Fixes applied to the engine:
+  - real-mode start grace default raised to **1.0 s**;
+  - completion requires **consecutive** stopped readings (settle: 3 for
+    homing, 2 for moves) — single readings are not trusted;
+  - motion dispatch **retries on −10** (up to 8×) instead of failing;
+  - the range search treats an early hardware stop as a limit hit only after
+    re-confirming the switch bit (guards against mechanical stall).
+- **Self-check parking: FIX.** Parking exactly at soft_min left the home
+  switch (hysteresis) active and shifted the next run's homing zero by
+  ~2.5 mm. Self-check now parks `park_offset_mm` (default 3 mm) inside the
+  range.
 - **Connection note:** one transient `Open_Device` rc=−5 was observed before a
   successful retry; the backend and tools now retry 3× (with `Close_Device`
   between attempts). If a run crashes without disconnecting, the controller
   may need a power cycle before it accepts new connections.
 
 ### Remaining open items
-- Axis 1 positive-limit wiring/mapping (use `tools/limit_monitor.py`).
-- Re-run B1 (now homed) to record trip position + overrun, confirming whether
-  the controller hardware-stops on a limit or relies on the library.
+- Re-run `hw_acceptance.py --axes 0,1` with the start-latency fixes to get a
+  clean two-axis acceptance pass.
 - Re-measure e-stop dispatch with >2 axes wired; ask vendor about DLL thread
   safety for parallel per-axis stops.
+- Span repeatability check across 3+ self-check runs (expect < 1 mm drift now
+  that parking clears the switch).

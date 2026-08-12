@@ -39,8 +39,11 @@ def test_self_check_discovers_range(sim):
     assert ax0.soft_limit_max == pytest.approx(ax0.span_mm - 2.0, abs=0.01)
     ax1 = report.axis(1)
     assert ax1.span_mm == pytest.approx(150.0, abs=2.5)
-    # parked at soft_min afterwards (return_to_min)
-    assert ctrl.get_position(0) == pytest.approx(ax0.soft_limit_min, abs=0.05)
+    # parked park_offset inside soft_min afterwards, clear of the home switch
+    park_offset = ctrl.get_axis_config(0).self_check.park_offset_mm
+    assert ctrl.get_position(0) == pytest.approx(ax0.soft_limit_min + park_offset,
+                                                 abs=0.05)
+    assert not ctrl.get_status().axes[0].limit_negative
 
 
 def test_self_check_report_json(sim):
@@ -74,12 +77,12 @@ def test_self_check_fails_when_both_limits_active(sim):
 
 
 def test_self_check_far_limit_never_trips(sim):
-    """Stuck-off far switch -> search distance exhausted -> SelfCheckError."""
+    """Stuck-off far switch -> axis stops without a trip -> SelfCheckError."""
     ctrl = sim
     ctrl.inject_limit_stuck(0, "positive", False)
     report = ctrl.self_check(axes=[0])
     assert not report.axis(0).passed
-    assert "did not trigger" in report.axis(0).error
+    assert "without the far limit switch triggering" in report.axis(0).error
 
 
 def test_self_check_refused_when_estopped(sim):

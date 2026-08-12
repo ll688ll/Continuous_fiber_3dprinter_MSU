@@ -50,7 +50,11 @@ class SelfCheckConfig:
     creep_speed: float = 10.0
     max_search_mm: float = 1000.0
     margin_mm: float = 2.0
-    return_to_min: bool = True  # finish self-check parked at soft_min
+    return_to_min: bool = True  # finish self-check parked near the home end
+    #: park this far inside soft_min. Parking exactly at soft_min can leave the
+    #: home switch (hysteresis) active and shifts the next homing's zero point
+    #: (observed 2.5 mm span drift on the lab machine, 2026-08-11).
+    park_offset_mm: float = 3.0
 
 
 @dataclass
@@ -154,6 +158,8 @@ class ControllerConfig:
                 raise ConfigError(f"{prefix}: self_check creep_speed/max_search_mm must be > 0")
             if ax.self_check.margin_mm < 0:
                 raise ConfigError(f"{prefix}: self_check.margin_mm must be >= 0")
+            if ax.self_check.park_offset_mm < 0:
+                raise ConfigError(f"{prefix}: self_check.park_offset_mm must be >= 0")
             sl = ax.soft_limits
             if sl.known and sl.min >= sl.max:  # type: ignore[operator]
                 raise ConfigError(f"{prefix}: soft_limits.min must be < soft_limits.max")

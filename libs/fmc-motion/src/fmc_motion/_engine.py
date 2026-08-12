@@ -35,6 +35,7 @@ from .config import (
 )
 from .errors import (
     ControllerConnectionError,
+    DeviceBusyError,
     EStopActiveError,
     LimitHitError,
     MotionError,
@@ -321,7 +322,11 @@ class EngineController(MotionController):
                 rt.cfg.soft_limits.discovered_at = _now_iso()
 
             if sc.return_to_min:
-                park = rt.soft_min if home_negative else rt.soft_max
+                # park inside the range, clear of the home switch's hysteresis
+                if home_negative:
+                    park = min(rt.soft_min + sc.park_offset_mm, rt.soft_max)
+                else:
+                    park = max(rt.soft_max - sc.park_offset_mm, rt.soft_min)
                 self.move_absolute(axis, park, wait=True)
 
             rep.span_mm = span
@@ -655,11 +660,14 @@ class EngineController(MotionController):
         axis = rt.cfg.index
         h = rt.cfg.homing
         logger.info("home axis=%s dir=%s speed=%s", axis, h.direction, h.speed)
-        with self._ll_lock:
-            self._ll_home(axis, h.speed, h.accdec, h.fall_step,
-                          direction_positive=h.direction != HOMING_NEGATIVE)
+        self._ll_dispatch_retrying_busy(
+            rt,
+            lambda: self._ll_home(axis, h.speed, h.accdec, h.fall_step,
+                                  direction_positive=h.direction != HOMING_NEGATIVE),
+        )
         self._start_grace_wait(rt)
-        self._poll_until_stopped(rt, cmd, check_limits=False)
+        # homing may have internal phases with brief stops -> settle 3 reads
+        self._poll_until_stopped(rt, cmd, check_limits=False, settle=3)
         with self._state_lock:
             rt.homed = True
             rt.predicted_end = None
@@ -688,23 +696,41 @@ class EngineController(MotionController):
 
         logger.debug("move axis=%s %s -> %.3f speed=%s", axis,
                      cmd.handle.description, target, cmd.speed)
-        with self._ll_lock:
-            self._ll_move(axis, cmd.target, cmd.speed, cmd.accel, cmd.decel,
-                          relative=cmd.relative)
+        self._ll_dispatch_retrying_busy(
+            rt,
+            lambda: self._ll_move(axis, cmd.target, cmd.speed, cmd.accel,
+                                  cmd.decel, relative=cmd.relative),
+        )
         self._start_grace_wait(rt)
         self._poll_until_stopped(rt, cmd, check_limits=True, direction=direction)
         cmd.handle._finish_ok(self._snapshot(max_age=0.0).positions[axis])
 
     def _exec_creep(self, rt: _AxisRuntime, cmd: _Cmd) -> None:
-        """Self-check range search: relative move toward the far switch; success
-        when that switch trips (the library stops the axis itself — FR-HOME-07)."""
+        """Self-check range search: relative move toward the far switch.
+
+        Success paths (bench B1 2026-08-11 confirmed the controller
+        hardware-stops the axis when a limit trips mid-move):
+        * the far switch bit is observed while moving -> library stops the axis
+          (belt-and-braces, FR-HOME-07), or
+        * the axis stops on its own before the search distance -> re-read the
+          switch bit to confirm it was the limit (guards against a stall).
+        """
         axis = rt.cfg.index
-        with self._ll_lock:
-            self._ll_move(axis, cmd.direction * cmd.target, cmd.speed, cmd.accel,
-                          cmd.decel, relative=True)
+        self._ll_dispatch_retrying_busy(
+            rt,
+            lambda: self._ll_move(axis, cmd.direction * cmd.target, cmd.speed,
+                                  cmd.accel, cmd.decel, relative=True),
+        )
         self._start_grace_wait(rt)
         deadline = self._move_deadline(rt)
         limit_key = "limit_positive" if cmd.direction > 0 else "limit_negative"
+
+        def finish(pos: float) -> None:
+            with self._state_lock:
+                rt.predicted_end = None
+            cmd.handle._finish_ok(pos)
+
+        stopped_reads = 0
         while True:
             self._raise_if_aborted(rt)
             snap = self._snapshot()
@@ -712,15 +738,25 @@ class EngineController(MotionController):
                 with self._ll_lock:
                     self._ll_stop(axis, immediate=True)
                 self._wait_ll_stopped(rt)
-                pos = self._snapshot(max_age=0.0).positions[axis]
-                with self._state_lock:
-                    rt.predicted_end = None
-                cmd.handle._finish_ok(pos)
+                finish(self._snapshot(max_age=0.0).positions[axis])
                 return
             if self._is_stopped(axis):
+                stopped_reads += 1
+            else:
+                stopped_reads = 0
+            if stopped_reads >= 2:  # debounced: the axis really has stopped
+                # hardware-stopped early? confirm the switch actually tripped
+                for _ in range(3):
+                    confirm = self._snapshot(max_age=0.0)
+                    if getattr(confirm, limit_key)[axis]:
+                        finish(confirm.positions[axis])
+                        return
+                    time.sleep(self._cfg.poll_interval_s)
+                pos = self._snapshot(max_age=0.0).positions[axis]
                 raise SelfCheckError(
-                    f"axis {axis}: far limit switch did not trigger within "
-                    f"{cmd.target} mm search distance"
+                    f"axis {axis}: stopped at {pos:.2f} mm without the far "
+                    f"limit switch triggering (search distance {cmd.target} mm) "
+                    f"- check switch wiring or mechanical stall"
                 )
             if deadline is not None and time.monotonic() > deadline:
                 with self._ll_lock:
@@ -729,9 +765,16 @@ class EngineController(MotionController):
             time.sleep(self._cfg.poll_interval_s)
 
     def _poll_until_stopped(self, rt: _AxisRuntime, cmd: _Cmd, *,
-                            check_limits: bool, direction: int = 0) -> None:
+                            check_limits: bool, direction: int = 0,
+                            settle: int = 2) -> None:
+        """Wait for the axis to report stopped ``settle`` consecutive times.
+
+        Lab run 2026-08-11: a single "stopped" reading is not trustworthy —
+        Check_Axis_Is_Stop can read 1 before a just-dispatched motion starts,
+        and homing may contain internal phases with brief stops."""
         axis = rt.cfg.index
         deadline = self._move_deadline(rt)
+        stopped_reads = 0
         while True:
             self._raise_if_aborted(rt)
             if check_limits:
@@ -746,7 +789,11 @@ class EngineController(MotionController):
                         f"axis {axis}: {side} limit switch tripped during move"
                     )
             if self._is_stopped(axis):
-                return
+                stopped_reads += 1
+                if stopped_reads >= settle:
+                    return
+            else:
+                stopped_reads = 0
             if deadline is not None and time.monotonic() > deadline:
                 with self._ll_lock:
                     self._ll_stop(axis, immediate=True)
@@ -754,6 +801,26 @@ class EngineController(MotionController):
                     f"axis {axis}: move watchdog ({rt.cfg.move_timeout_s}s) expired"
                 )
             time.sleep(self._cfg.poll_interval_s)
+
+    def _ll_dispatch_retrying_busy(self, rt: _AxisRuntime, dispatch) -> None:
+        """Dispatch a motion call, retrying on vendor -10 (device busy).
+
+        Even with the start grace and settle debounce, a prior motion can
+        still be winding down when the next command arrives; -10 is retryable
+        by design (lab run 2026-08-11)."""
+        attempts = 8
+        for attempt in range(attempts):
+            try:
+                with self._ll_lock:
+                    dispatch()
+                return
+            except DeviceBusyError:
+                if attempt == attempts - 1:
+                    raise
+                logger.debug("axis %s busy (-10), retry %d/%d",
+                             rt.cfg.index, attempt + 1, attempts)
+                self._raise_if_aborted(rt)
+                time.sleep(max(self._cfg.poll_interval_s, 0.1))
 
     def _move_deadline(self, rt: _AxisRuntime) -> Optional[float]:
         if rt.cfg.move_timeout_s is None:
@@ -777,9 +844,15 @@ class EngineController(MotionController):
             if self._estop_latched:
                 raise MoveCancelledError("command aborted by e-stop")
 
-    def _wait_ll_stopped(self, rt: _AxisRuntime, timeout: float = 5.0) -> None:
+    def _wait_ll_stopped(self, rt: _AxisRuntime, timeout: float = 5.0,
+                         settle: int = 2) -> None:
         deadline = time.monotonic() + timeout
-        while not self._is_stopped(rt.cfg.index):
+        stopped_reads = 0
+        while stopped_reads < settle:
+            if self._is_stopped(rt.cfg.index):
+                stopped_reads += 1
+            else:
+                stopped_reads = 0
             if time.monotonic() > deadline:
                 return
             time.sleep(self._cfg.poll_interval_s / 2)
