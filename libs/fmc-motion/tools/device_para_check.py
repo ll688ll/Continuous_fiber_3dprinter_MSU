@@ -79,16 +79,19 @@ def main() -> None:
                 f"the vendor tool"
             )
 
-        # 2. homing duration vs controller home timeout (assume ms)
+        # 2. homing duration vs controller home timeout.
+        # Unit is NOT milliseconds: with home_timeout=10000, a ~19 s far-end
+        # homing of the 282 mm Z actuator succeeded (lab 2026-08-13), so the
+        # earlier ms-based warning was a false alarm. Only flag values that
+        # would be too small under EVERY plausible unit interpretation.
         if travel and ax_cfg.homing.speed:
             worst_home_s = travel / ax_cfg.homing.speed
-            timeout_s = dev["home_timeout"] / 1000.0
-            if worst_home_s > timeout_s:
+            if dev["home_timeout"] < worst_home_s:  # too small even as seconds
                 warnings.append(
                     f"axis {i} ({name}): homing from the far end takes "
                     f"~{worst_home_s:.0f} s at {ax_cfg.homing.speed} mm/s but the "
-                    f"controller Home Timeout is {timeout_s:.0f} s - raise the "
-                    f"timeout in the vendor tool or increase homing speed"
+                    f"controller Home Timeout is only {dev['home_timeout']} - "
+                    f"raise it in the vendor tool"
                 )
 
         # 3. scaling info

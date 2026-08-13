@@ -328,11 +328,13 @@ number), `PreflightError`, `JobError`.
 
 ## 9. Open items
 - SRS Q1: tool controller hardware selection (blocks M5).
-- Vendor-tool maintenance: raise Home Timeout (10 s) for **X and Z** — both
-  are ~283 mm actuators whose far-end homing takes 14–19 s at configured
-  speeds. (X flagged since 2026-08-11; Z joins with the same geometry.)
-- Confirm which machine Z direction is physically "up" (sign convention for
-  real layer heights; matters before bed-zero calibration, SRS Q3).
+- **Per-tool Z frame transform (needed before slicer-native prints; part of
+  SRS Q3 calibration):** machine Z zero is at the TOP (home far from the
+  print plane — confirmed intentional 2026-08-13), so machine Z increases
+  *toward* the bed while slicer Z means *height above* the bed. The
+  interpreter needs `machine_z = z_bed_offset − gcode_z` per tool, with
+  `z_bed_offset` calibrated. Today's test files use raw machine
+  coordinates, which is fine for lab paths but not for sliced parts.
 
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.
@@ -433,6 +435,15 @@ T0's Z (controller axis 2, `Z_T0`) is fully commissioned; records in
 - Incidental robustness proof: the first print homed and ran cleanly right
   after an acceptance re-run was Ctrl-C'd mid-creep — the −10 busy-retry
   path recovered without operator intervention.
+- **Home Timeout concern CLOSED:** Z's homing in this run started from the
+  positive limit — ~282 mm at 15 mm/s ≈ 19 s — and succeeded with the
+  stock `home_timeout: 10000`. The unit is therefore not milliseconds (the
+  2026-08-11 "raise the timeout" advice assumed ms and was a false alarm);
+  `device_para_check` now only warns when a timeout is too small under
+  every unit interpretation.
+- **Z orientation confirmed intentional:** homing (machine zero) is at the
+  physical TOP, far from the print plane — Jacky's design choice. See §9
+  for the resulting slicer-Z transform requirement.
 
 The lab machine is now a validated 3-axis (X/Y/Z_T0) motion platform;
 remaining hardware work is the tool controller (SRS Q1, §9).

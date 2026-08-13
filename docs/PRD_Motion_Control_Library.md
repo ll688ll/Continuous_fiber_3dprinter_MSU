@@ -419,9 +419,11 @@ Driven entirely by the persistent `configs/msu_lab.json`
   maintenance action (axis 0 homing vs. Home Timeout).
 
 ### Remaining open items
-- **Maintenance action:** raise X's Home Timeout in the vendor tool (e.g.
-  10000 → 30000) — far-end homing at 20 mm/s takes ~14 s vs the 10 s limit.
-- Re-measure e-stop dispatch when all 6 axes are wired (projection ~120 ms).
+- ~~Raise X's Home Timeout~~ **CLOSED 2026-08-13**: the assumed ms unit was
+  wrong — a ~19 s far-end homing of the 282 mm Z actuator succeeded with
+  `home_timeout: 10000`, so the stock value is not a 10 s limit.
+- Re-measure e-stop dispatch when all 6 axes are wired (3 axes measured
+  59.9 ms on 2026-08-13; projection comfortably in budget).
 - Ask vendor about DLL thread safety (only an optimization now).
 - Physical scaling check per actuator (command 50 mm, measure with a ruler)
   — especially the short 85 mm actuator, whose screw lead may differ.
