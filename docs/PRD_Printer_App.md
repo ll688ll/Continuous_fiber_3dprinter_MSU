@@ -314,9 +314,15 @@ number), `PreflightError`, `JobError`.
    `move_line` upgrade, full test suite. Acceptance §7.1–7.5.
 3. **M3 — hardware validation (lab)**: bench B-L1..B-L4 on the real stage,
    then a real XY toolpath run; record artifacts under `docs/test-records/`.
-4. **M4 — minimal PySide6 print console**: open file, check, start/pause/
-   resume/stop/e-stop, progress + status, log tail; Qt bridge over FR-JOB-05
-   events.
+4. **M4 — minimal PySide6 print console** *(DONE 2026-08-12, sim-verified)*:
+   `printer-msu ui [--profile P] [file]` — load profile / connect, open +
+   check a file, start/pause/resume/stop/e-stop with Home-first and Clear
+   E-Stop, progress bar + live axis table + log tail. Structure:
+   `ui/bridge.py` (JobBridge marshals FR-JOB-05 worker events to queued Qt
+   signals; StatusPoller + TaskRunner keep all controller I/O off the UI
+   thread per UI-010) and `ui/print_console.py` (window). Tested offscreen
+   against the sim backend (`tests/test_ui_console.py`); skipped when
+   PySide6 (the `[ui]` extra) is absent. Lab (real-mode) shakeout pending.
 5. **M5+ (deferred)**: tool controller integration (pending SRS Q1 hardware),
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 

@@ -126,6 +126,11 @@ class FmcMotionAdapter(BaseMotionController):
     def estop(self) -> None:
         self._ctrl.estop()
 
+    def clear_estop(self) -> None:
+        """Release the software e-stop latch (fails while hardware e-stop
+        input is still active)."""
+        self._ctrl.clear_estop()
+
     # ----------------------------------------------------------------- extra
     def capabilities(self) -> dict:
         caps = dict(self._ctrl.capabilities())
@@ -142,6 +147,22 @@ class FmcMotionAdapter(BaseMotionController):
         """Configured max speed (mm/s) per logical axis (feed clamping)."""
         return {name: self._ctrl.get_axis_config(idx).max.speed
                 for name, idx in self._name_to_index.items()}
+
+    def full_status(self) -> dict:
+        """Rich per-axis snapshot for status displays, one controller
+        round-trip: {axes: {name: {position, speed, homed, busy, fault}},
+        estop, connected}."""
+        status = self._ctrl.get_status()
+        axes = {}
+        for idx, ax in status.axes.items():
+            name = self._index_to_name.get(idx)
+            if name is None:
+                continue
+            axes[name] = {"position": ax.position, "speed": ax.speed,
+                          "homed": ax.homed, "busy": ax.busy,
+                          "fault": ax.fault}
+        return {"axes": axes, "estop": status.estop_active,
+                "connected": status.connected}
 
     def _index_of(self, name: str) -> int:
         try:

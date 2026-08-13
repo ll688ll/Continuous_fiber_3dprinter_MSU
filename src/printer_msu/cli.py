@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from .config.profile import MachineProfile, load_profile
-from .controllers.motion.fmc_motion_adapter import FmcMotionAdapter
 from .core.gcode.analysis import analyze
 from .core.gcode.interpreter import interpret
 from .core.gcode.parser import parse_file
@@ -49,12 +48,10 @@ def _load_profile(args) -> MachineProfile:
     return profile
 
 
-def _build_adapter(profile: MachineProfile) -> FmcMotionAdapter:
-    from fmc_motion import create_controller  # deferred: keeps `--help` fast
+def _build_adapter(profile: MachineProfile):
+    from .machine import build_adapter  # deferred: keeps `--help` fast
 
-    controller = create_controller(str(profile.motion.config_path),
-                                   mode=profile.motion.mode)
-    return FmcMotionAdapter(controller, axis_map=profile.motion.axis_map)
+    return build_adapter(profile)
 
 
 # -------------------------------------------------------------------- check
@@ -185,10 +182,15 @@ def _attach_job_log(log_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------- ui
-def _cmd_ui(_args) -> int:
+def _cmd_ui(args) -> int:
     from .app import main as ui_main
 
-    return ui_main([])
+    forwarded: list[str] = []
+    if args.profile:
+        forwarded += ["--profile", args.profile]
+    if args.file:
+        forwarded.append(args.file)
+    return ui_main(forwarded)
 
 
 # --------------------------------------------------------------------- main
@@ -217,7 +219,9 @@ def build_parser() -> argparse.ArgumentParser:
     prnt.add_argument("--report", help="job report path (default logs/<job>.json)")
     prnt.set_defaults(func=_cmd_print)
 
-    ui = sub.add_parser("ui", help="launch the PySide6 window (placeholder)")
+    ui = sub.add_parser("ui", help="launch the PySide6 print console")
+    ui.add_argument("file", nargs="?", help="G-code file to preload")
+    ui.add_argument("--profile", help="machine profile JSON to preload")
     ui.set_defaults(func=_cmd_ui)
     return parser
 

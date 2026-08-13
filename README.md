@@ -42,9 +42,16 @@ printer-msu print examples/square_20mm.gcode --profile configs/printer_sim.json
 ```
 
 On the lab machine, use `--profile configs/printer_msu_lab.json` (real mode,
-XY only). `python -m printer_msu ...` works identically; `printer-msu ui`
-opens the (placeholder) PySide6 window. Design docs: `docs/PRD_Printer_App.md`
-(printer core) and `docs/PRD_Motion_Control_Library.md` (motion library).
+XY only). `python -m printer_msu ...` works identically. The PySide6 print
+console (requires the `[ui]` extra) opens with
+
+```bash
+printer-msu ui --profile configs/printer_sim.json examples/square_20mm.gcode
+```
+
+and offers connect, check, start/pause/resume/stop/e-stop, live axis status,
+and a log tail. Design docs: `docs/PRD_Printer_App.md` (printer core) and
+`docs/PRD_Motion_Control_Library.md` (motion library).
 
 The PySide6 UI is an optional extra (`.[ui]`); the core and the motion
 library install without it. The printer core reaches the motion hardware via
