@@ -1,0 +1,55 @@
+{
+  "BL1_endpoint_semantics": {
+    "dispatch_rc": 0,
+    "commanded_end": [
+      40.0,
+      35.0
+    ],
+    "start": [
+      20.0,
+      20.0
+    ],
+    "final": [
+      40.0,
+      35.0
+    ],
+    "verdict": "absolute",
+    "library_assumption_ok": true
+  },
+  "BL2_composite_speed": {
+    "commanded_composite_mm_s": 15.0,
+    "path_length_mm": 25.0,
+    "duration_s_incl_latency": 2.05,
+    "peak_axis_speeds_mm_s": [
+      11.99,
+      8.99
+    ],
+    "expected_if_composite": [
+      12.0,
+      9.0
+    ],
+    "axes_moved_simultaneously": true,
+    "max_path_deviation_mm": 0.004,
+    "samples": 5
+  },
+  "BL2b_busy_line": {
+    "first_rc": 0,
+    "second_rc_while_moving": -10,
+    "completed": true,
+    "final": [
+      20.0,
+      20.0
+    ]
+  },
+  "BL3_pause_on_line": {
+    "pause_rc": 0,
+    "resume_rc": 0,
+    "held_position_while_paused": true,
+    "completed_after_resume": true,
+    "reached_original_target": true,
+    "final": [
+      40.0,
+      35.0
+    ]
+  }
+}

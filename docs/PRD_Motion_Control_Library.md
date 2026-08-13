@@ -449,3 +449,14 @@ straight-line move across exactly two axes via vendor `Line_2Axis`.
 - **Bench items (printer PRD B-L1..B-L4)**: absolute-endpoint assumption and
   `endX`/`endY`↔axis-order, composite-speed semantics and −10 behavior,
   Pause_Run on interpolated motion, limit-trip-during-line hardware stop.
+
+### v1.1 bench results (lab run 2026-08-12, `tools/hw_line_bench.py`)
+B-L1..B-L3 **answered** (records in `docs/test-records/2026-08-12/`; details
+in the printer PRD §10): endpoints are **absolute** coordinates in
+ascending-axis order — the backend is correct as implemented; speed is
+**composite path speed** (measured per-axis peaks matched v·Δᵢ/D to 0.01 mm/s,
+path deviation 0.004 mm); busy line returns −10 (queue design holds);
+**Pause_Run/Resume_Run work on interpolated moves** (held position, resumed
+to target) — the pause-on-line refusal can be relaxed in a future rev.
+B-L4 (limit trip mid-line) still outstanding; library-side monitoring covers
+it meanwhile. First real interpolated print completed the same day.

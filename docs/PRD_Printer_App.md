@@ -322,9 +322,41 @@ number), `PreflightError`, `JobError`.
 
 ## 9. Open items
 - SRS Q1: tool controller hardware selection (blocks M5).
-- Bench B-L1..B-L4 (blocks M3 sign-off; sim ships with documented
-  assumptions). Runner: `libs/fmc-motion/tools/hw_line_bench.py` — B-L1/B-L2
-  automated, B-L3 interactive, B-L4 behind `--with-limit`; its B-L1 geometry
-  is safe under every candidate interpretation of the vendor call.
+- Bench **B-L4 only** (B-L1..B-L3 answered 2026-08-12, see §10). Runner:
+  `libs/fmc-motion/tools/hw_line_bench.py --with-limit` (answer `n` to the
+  earlier phases to jump straight to it).
+- Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
+  the printer's between-segment pause remains the default behavior.
+
+## 10. M3 bench + first-print results (lab run 2026-08-12)
+
+Records: `docs/test-records/2026-08-12/` (`line_bench_results.json`,
+`first_real_print_job.json`). Runner: `tools/hw_line_bench.py`.
+
+- **B-L1 — RESOLVED: endpoints are ABSOLUTE machine coordinates**, in
+  ascending-axis order (`endX` = lower axis index). From (20, 20) commanding
+  (40, 35), the machine finished at exactly (40.000, 35.000). The backend's
+  assumption stands as implemented.
+- **B-L2 — RESOLVED: composite (path) speed, Marlin-equivalent semantics.**
+  Commanded 15 mm/s over a 25 mm path (Δ 20/15 mm): measured per-axis peaks
+  **11.99 / 8.99 mm/s** vs the composite prediction 12.0 / 9.0 (= v·Δᵢ/D);
+  axes moved simultaneously; **max path deviation 0.004 mm**. Feed = toolhead
+  speed along the path, exactly like Marlin's planner.
+- **B-L2b — busy behavior:** `Line_2Axis` during a line returns **−10**; the
+  library's queue + retry design applies unchanged to lines.
+- **B-L3 — RESOLVED: Pause_Run/Resume_Run WORK on an interpolated move**
+  (mask = both axes): rc 0/0, position held while paused, resumed and reached
+  the original target. FR-LINE-04's refusal can be relaxed in a future
+  library rev; not yet implemented (printer pauses between segments, which
+  remains correct and safe).
+- **B-L4 — outstanding** (limit trip mid-line; optional, `--with-limit`).
+  Until run, the library's own limit monitoring (stop both axes on any trip)
+  is the guarantee; single-axis bench B1 (2026-08-11) showed the controller
+  hardware-stops with 0.000 mm overrun, so the risk is bounded.
+- **First real print PASSED:** `examples/square_20mm.gcode` on the lab XY
+  stage via `printer-msu print --profile configs/printer_msu_lab.json`
+  (job-20260812-212131): homed from the file's `G28 X Y`, six coordinated
+  line segments, tool commands skipped per D2, COMPLETED with report.
+  Acceptance §7.6 is met pending B-L4 for formal M3 sign-off.
 - Lab maintenance carry-over from the library PRD: raise X's Home Timeout in
   the vendor tool; physical mm-scaling spot check per actuator.
