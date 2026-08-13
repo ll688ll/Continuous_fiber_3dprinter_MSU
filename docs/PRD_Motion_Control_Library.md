@@ -482,4 +482,5 @@ position works. Fixes (v0.2.1):
   hardware limit stops whose bit a poll missed.
 - Sim models the behavior via `inject_silent_ignore()` so both fixes are
   exercised in CI.
-Real-machine re-run of a full print (position-verified) still pending.
+Real-machine re-run PASSED same day (job-20260812-231448): homing +
+clearance + six position-verified line segments — defect closed.

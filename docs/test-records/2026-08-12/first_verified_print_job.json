@@ -1,0 +1,53 @@
+{
+  "job_id": "job-20260812-231448",
+  "gcode_path": "examples\\square_20mm.gcode",
+  "gcode_sha256": "28c04bdd9ce8aea5c2d7cdde6a2acffc349460b836f21345bde8c91099cf0ba3",
+  "profile": {
+    "profile_name": "MSU lab XY stage (real, no Z wired)",
+    "motion": {
+      "config": "C:\\Local_projects\\Continuous_fiber_3dprinter_MSU\\configs\\msu_lab.json",
+      "mode": "real",
+      "axis_map": {
+        "X": 0,
+        "Y": 1
+      }
+    },
+    "tools": [
+      {
+        "tool_index": 0,
+        "z_axis": null
+      }
+    ],
+    "gcode": {
+      "default_tool": 0,
+      "default_feed_mm_min": 1200.0,
+      "travel_feed_mm_min": 2400.0
+    },
+    "policies": {
+      "unknown_command": "warn",
+      "tool_commands": "skip",
+      "missing_axis": "skip",
+      "feed_over_max": "clamp",
+      "require_homed": true,
+      "home_before_print": false
+    }
+  },
+  "mode": "real",
+  "started_at": "2026-08-13T03:14:49+00:00",
+  "finished_at": "2026-08-13T03:15:15+00:00",
+  "end_reason": "completed",
+  "final_state": "completed",
+  "last_line": 21,
+  "skipped_commands": {
+    "M104": 1,
+    "M109": 1,
+    "E": 4,
+    "M106": 1,
+    "M107": 1,
+    "M84": 1
+  },
+  "warnings": [
+    "line 13: Z/E used before any Tn; assuming T0 (profile default)"
+  ],
+  "error": null
+}

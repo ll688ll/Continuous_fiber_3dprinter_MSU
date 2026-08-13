@@ -327,15 +327,6 @@ number), `PreflightError`, `JobError`.
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 
 ## 9. Open items
-- **Silent no-motion defect — CAUSE CONFIRMED, FIX SHIPPED, lab re-run
-  pending (blocks M3 §7.6):** `hw_lib_line_check.py` (2026-08-12) proved
-  the controller ignores `Line_2Axis` while a limit switch is active, and
-  the home switch stays engaged at the post-home rest position. Fixed in
-  fmc-motion v0.2.1: `homing.clear_offset_mm = 5.0` (post-home clearance,
-  set in both machine configs) + engine success-path target verification
-  (0.5 mm) + the runner's own 0.25 mm check. Remaining: re-run
-  `printer-msu print examples/square_20mm.gcode --profile
-  configs/printer_msu_lab.json` — COMPLETED now guarantees physical motion.
 - SRS Q1: tool controller hardware selection (blocks M5).
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.
@@ -394,9 +385,22 @@ Records: `docs/test-records/2026-08-12/` (`line_bench_results.json`,
   toolpath physically happened. Moves also log at INFO (visible in the UI
   log tail).
 
-**M3 sign-off status:** bench items B-L1..B-L4 stand (raw-level, machine
-verified moving). The §7.6 "real toolpath prints" criterion is **reopened**
-until the no-motion defect is diagnosed and a real square verifiably prints
-(position-verified by the new runner check).
+- **Root cause + fix (same day):** `tools/hw_lib_line_check.py` confirmed
+  the controller **silently ignores interpolated moves while a limit switch
+  is active**, and the home switch stays engaged at the post-home rest
+  position (fall_step 2 mm < hysteresis). fmc-motion v0.2.1 fixes:
+  `homing.clear_offset_mm = 5.0` post-home clearance in both machine
+  configs, engine success-path target verification (0.5 mm), sim
+  `inject_silent_ignore()` parity. Records: `lib_line_check_results.json`,
+  `retracted_no_motion_print_job.json`.
+- **First VERIFIED real print PASSED (2026-08-12, job-20260812-231448):**
+  `square_20mm.gcode` on the lab XY stage — homing + switch clearance,
+  six coordinated line segments each position-verified (runner 0.25 mm +
+  engine 0.5 mm checks active), COMPLETED. Record:
+  `first_verified_print_job.json`.
+
+**M3 is signed off** (2026-08-12, second pass): all bench items B-L1..B-L4
+answered, the silent-ignore defect found/fixed/regression-tested, and a
+real toolpath printed with position verification proving physical motion.
 - Lab maintenance carry-over from the library PRD: raise X's Home Timeout in
   the vendor tool; physical mm-scaling spot check per actuator.
