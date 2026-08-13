@@ -323,6 +323,8 @@ number), `PreflightError`, `JobError`.
 ## 9. Open items
 - SRS Q1: tool controller hardware selection (blocks M5).
 - Bench B-L1..B-L4 (blocks M3 sign-off; sim ships with documented
-  assumptions).
+  assumptions). Runner: `libs/fmc-motion/tools/hw_line_bench.py` — B-L1/B-L2
+  automated, B-L3 interactive, B-L4 behind `--with-limit`; its B-L1 geometry
+  is safe under every candidate interpretation of the vendor call.
 - Lab maintenance carry-over from the library PRD: raise X's Home Timeout in
   the vendor tool; physical mm-scaling spot check per actuator.
