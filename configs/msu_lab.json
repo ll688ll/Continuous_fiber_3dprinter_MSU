@@ -84,6 +84,45 @@
         "span_mm": 85.42,
         "discovered_at": "2026-08-12T02:45:38+00:00"
       }
+    },
+    {
+      "index": 2,
+      "name": "Z_T0",
+      "enabled": true,
+      "homing": {
+        "direction": "negative",
+        "speed": 15.0,
+        "accdec": 200.0,
+        "fall_step": 2.0,
+        "clear_offset_mm": 5.0
+      },
+      "defaults": {
+        "speed": 30.0,
+        "accel": 300.0,
+        "decel": 300.0
+      },
+      "max": {
+        "speed": 100.0,
+        "accel": 1000.0,
+        "decel": 1000.0
+      },
+      "self_check": {
+        "creep_speed": 5.0,
+        "max_search_mm": 400.0,
+        "margin_mm": 2.0,
+        "park_offset_mm": 3.0
+      },
+      "jog": {
+        "speed": 10.0,
+        "max_step_unhomed": 2.0
+      },
+      "allow_unhomed": false,
+      "soft_limits": {
+        "min": null,
+        "max": null,
+        "span_mm": null,
+        "discovered_at": null
+      }
     }
   ],
   "sim": {
@@ -97,6 +136,11 @@
       "1": {
         "travel_mm": 85.0,
         "start_pos_mm": 40.0,
+        "overtravel_mm": 2.0
+      },
+      "2": {
+        "travel_mm": 150.0,
+        "start_pos_mm": 75.0,
         "overtravel_mm": 2.0
       }
     }

@@ -327,6 +327,24 @@ number), `PreflightError`, `JobError`.
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 
 ## 9. Open items
+- **Z axis bring-up (T0's Z, controller axis 2 — wired 2026-08-12).**
+  Config + profile are ready (`msu_lab.json` axis 2 `Z_T0`, lab profile maps
+  it; sim-verified end-to-end with `examples/two_layer_square.gcode`).
+  Lab sequence:
+  1. `python libs/fmc-motion/tools/device_para_check.py --config
+     configs/msu_lab.json` — the controller's own soft limit on the Z
+     channel is ±200 mm (a longer actuator needs it raised in the vendor
+     tool) and check Home Timeout.
+  2. `python libs/fmc-motion/tools/limit_monitor.py` — hand-press both Z
+     switches, confirm they appear on bit 2.
+  3. `python libs/fmc-motion/tools/hw_acceptance.py --config
+     configs/msu_lab.json --axes 0,1,2 --save` — full acceptance including
+     Z self-check; `--save` persists the discovered span into the config.
+  4. Jog Z and confirm which machine direction is physically "up"; the
+     config assumes negative homing like X/Y — flip `homing.direction` (or
+     the motor direction in the vendor tool) if the mechanics disagree.
+  5. `printer-msu print examples/two_layer_square.gcode --profile
+     configs/printer_msu_lab.json` — first real three-axis, two-layer path.
 - SRS Q1: tool controller hardware selection (blocks M5).
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.

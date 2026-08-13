@@ -145,6 +145,9 @@ def main() -> None:
     ap.add_argument("--axes", default="0", help="comma-separated axis indices")
     ap.add_argument("--ip", default="192.168.0.30")
     ap.add_argument("--sim", action="store_true", help="dry-run in sim mode")
+    ap.add_argument("--save", action="store_true",
+                    help="persist self-check-discovered soft limits back into "
+                         "the --config file")
     ap.add_argument("--out", default="hw_acceptance_report.json")
     args = ap.parse_args()
 
@@ -161,6 +164,13 @@ def main() -> None:
         try:
             run(ctrl, axes, report)
             ok = True
+            if args.save:
+                if args.config:
+                    saved = ctrl.save_config()
+                    report["config_saved"] = str(saved)
+                    logging.info("discovered soft limits saved to %s", saved)
+                else:
+                    logging.warning("--save ignored: no --config file given")
         finally:
             report["finished"] = time.strftime("%Y-%m-%d %H:%M:%S")
             report["passed"] = ok and report.get("estop", {}).get("pass", False)
