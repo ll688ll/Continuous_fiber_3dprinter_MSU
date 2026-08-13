@@ -327,6 +327,11 @@ number), `PreflightError`, `JobError`.
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 
 ## 9. Open items
+- **Silent no-motion defect (blocks M3 §7.6):** `Line_2Axis` accepted
+  (rc=0) but not executed when fired from the post-home position — run
+  `python libs/fmc-motion/tools/hw_lib_line_check.py` on the lab machine to
+  confirm the near-switch hypothesis; the fix is likely a post-home
+  clearance move (engine `homing` option) or larger `fall_step`.
 - SRS Q1: tool controller hardware selection (blocks M5).
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.
@@ -367,12 +372,27 @@ Records: `docs/test-records/2026-08-12/` (`line_bench_results.json`,
   proven by the 2026-08-11 hand-press + B1 tests). Library-side monitoring
   stays as belt-and-braces; printable envelope (soft limits, 2 mm margin)
   clears the observed trip zone by >1.5 mm.
-- **First real print PASSED:** `examples/square_20mm.gcode` on the lab XY
-  stage via `printer-msu print --profile configs/printer_msu_lab.json`
-  (job-20260812-212131): homed from the file's `G28 X Y`, six coordinated
-  line segments, tool commands skipped per D2, COMPLETED with report.
+- **First real print — RETRACTED (silent no-motion defect).** The job
+  (job-20260812-212131) reported COMPLETED, but forensics show the machine
+  never moved: every `Line_2Axis` was dispatched rc=0 yet each segment took
+  exactly the grace+settle floor (~2.04 s, no motion time) and positions
+  never changed; the operator confirmed no visible motion beyond homing.
+  Prime suspect: the print fires its first line straight from the post-home
+  position at the home switch, which stays engaged past its trip point
+  (hysteresis) — the raw bench that DID move had jogged single-axis to
+  (20, 20) first. Under investigation via
+  `tools/hw_lib_line_check.py` (library-path repro: post-home limit bits,
+  line-from-home vs line-when-clear).
+- **Hardening added (2026-08-12):** the print worker now verifies the
+  reported position against the commanded target after every move
+  (`POSITION_TOLERANCE_MM = 0.25`) and fails the job with a clear error if
+  the controller silently ignored a command — COMPLETED now means the
+  toolpath physically happened. Moves also log at INFO (visible in the UI
+  log tail).
 
-**M3 is signed off** (2026-08-12): acceptance §7.6 met — all bench items
-B-L1..B-L4 answered and a real interpolated toolpath printed.
+**M3 sign-off status:** bench items B-L1..B-L4 stand (raw-level, machine
+verified moving). The §7.6 "real toolpath prints" criterion is **reopened**
+until the no-motion defect is diagnosed and a real square verifiably prints
+(position-verified by the new runner check).
 - Lab maintenance carry-over from the library PRD: raise X's Home Timeout in
   the vendor tool; physical mm-scaling spot check per actuator.

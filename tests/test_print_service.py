@@ -203,6 +203,32 @@ def test_relative_moves_resolve_against_live_position(profile, adapter):
     assert positions["Y"] == pytest.approx(25.0, abs=0.05)
 
 
+class _SilentlyIgnoringAdapter:
+    """Reproduces the 2026-08-12 lab failure: the controller accepts move
+    commands (rc=0) but never moves; everything else is passed through."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def move_absolute(self, axes_positions, feed, accel=None, decel=None):
+        pass  # accepted, "completed", no motion
+
+
+def test_silent_no_motion_is_detected_as_error(profile, adapter, tmp_path):
+    silent = _SilentlyIgnoringAdapter(adapter)
+    text = "G28 X Y\nG0 X10 Y10\nM2\n"
+    result = interpret(parse_text(text), profile)
+    runner = PrintJobRunner(profile, silent, result, "test.gcode",
+                            report_path=tmp_path / "report.json")
+    runner.start()
+    assert runner.join(timeout=30.0)
+    assert runner.state is PrintJobState.ERROR
+    assert "not at the target" in runner.error_message
+
+
 def test_xy_moves_use_line_interpolation(profile, adapter):
     result, runner = build("G28 X Y\nG0 X40 Y40\nM2\n", profile, adapter)
     runner.start()

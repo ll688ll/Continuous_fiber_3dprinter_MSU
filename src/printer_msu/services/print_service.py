@@ -157,6 +157,11 @@ EventCallback = Callable[[JobEvent], None]
 class PrintJobRunner:
     """Owns one job's worker thread and state machine (FR-JOB-01..06)."""
 
+    #: post-move position verification (lab 2026-08-12: the controller can
+    #: accept Line_2Axis with rc=0 and silently not move — "stopped" alone
+    #: cannot distinguish finished from never-started)
+    POSITION_TOLERANCE_MM = 0.25
+
     def __init__(self, profile: MachineProfile, adapter,
                  result: InterpretResult, gcode_path: str | Path, *,
                  job_id: Optional[str] = None,
@@ -345,7 +350,27 @@ class PrintJobRunner:
                for a in targets):
             return  # zero-length segment: nothing to do
         feed = self._clamped_feed(move)
+        logger.info("[%s] line %s: move %s @ %.1f mm/s", self.job_id,
+                    move.line_no,
+                    " ".join(f"{a}->{v:.3f}" for a, v in sorted(targets.items())),
+                    feed)
         self.adapter.move_absolute(targets, feed)
+        self._verify_position(targets)
+
+    def _verify_position(self, targets: dict[str, float]) -> None:
+        """A completed move MUST be at its target (FR-JOB-04 hardening)."""
+        after = self.adapter.get_status().positions
+        mismatched = {a: after.get(a, float("nan")) for a in targets
+                      if abs(after.get(a, float("nan")) - targets[a])
+                      > self.POSITION_TOLERANCE_MM}
+        if mismatched:
+            detail = ", ".join(
+                f"{a} commanded {targets[a]:.3f} but at {actual:.3f}"
+                for a, actual in sorted(mismatched.items()))
+            raise JobError(
+                f"move reported complete but the machine is not at the "
+                f"target ({detail}); the controller may have silently "
+                f"refused the command")
 
     def _clamped_feed(self, move: MoveLinear) -> float:
         max_speeds = self.adapter.max_speeds()
