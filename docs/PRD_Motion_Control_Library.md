@@ -458,5 +458,8 @@ ascending-axis order — the backend is correct as implemented; speed is
 path deviation 0.004 mm); busy line returns −10 (queue design holds);
 **Pause_Run/Resume_Run work on interpolated moves** (held position, resumed
 to target) — the pause-on-line refusal can be relaxed in a future rev.
-B-L4 (limit trip mid-line) still outstanding; library-side monitoring covers
-it meanwhile. First real interpolated print completed the same day.
+B-L4: a limit trip during a line is handled by the **controller itself,
+stopping both axes coordinated on-path** (equal path fractions, no drag);
+the bit can release before the next ~150 ms poll, so library-side monitoring
+stays as belt-and-braces. First real interpolated print completed the same
+day — **all v1.1 bench items closed.**

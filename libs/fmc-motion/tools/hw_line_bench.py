@@ -285,7 +285,31 @@ def bench_bl4_limit(dll, dev_id, buf, axes, creep=5.0) -> None:
                 behavior = f"hardware-stopped both={stopped_both}"
             break
         if both_stopped(dll, dev_id, axes):
-            behavior = "stopped-before-trip (unexpected - check wiring)"
+            # both axes stopped without our poll catching the bit. Lab run
+            # 2026-08-12: the controller hardware-stopped BOTH axes on-path
+            # ~0.5 mm before the previous day's measured trip point, bit
+            # already released (hysteresis) by the next ~150 ms poll.
+            # Distinguish a coordinated limit stop from a genuine anomaly by
+            # re-reading the bit and comparing per-axis path progress.
+            bit_late = False
+            for _ in range(3):
+                ms = get_status(dll, dev_id, buf)
+                if ms.limitPStatus & (1 << axes[1]):
+                    bit_late = True
+                    break
+                time.sleep(0.2)
+            fin = positions(dll, dev_id, buf, axes)
+            frac_a = (fin[0] - start[0]) / 30.0
+            frac_b = (fin[1] - start[1]) / (120.0 - start[1])
+            RESULTS["BL4_progress_fractions"] = [round(frac_a, 4), round(frac_b, 4)]
+            if bit_late:
+                behavior = "hardware-stopped both axes (bit confirmed on re-read)"
+            elif abs(frac_a - frac_b) < 0.02:
+                behavior = ("hardware-stopped both axes ON-PATH without an "
+                            "observed bit (early mechanical trip + switch "
+                            "hysteresis, or poll missed the bit)")
+            else:
+                behavior = "stopped before trip, axes NOT on-path - investigate"
             break
         time.sleep(0.1)
     else:

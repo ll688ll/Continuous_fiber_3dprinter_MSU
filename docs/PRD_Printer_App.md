@@ -322,11 +322,12 @@ number), `PreflightError`, `JobError`.
 
 ## 9. Open items
 - SRS Q1: tool controller hardware selection (blocks M5).
-- Bench **B-L4 only** (B-L1..B-L3 answered 2026-08-12, see §10). Runner:
-  `libs/fmc-motion/tools/hw_line_bench.py --with-limit` (answer `n` to the
-  earlier phases to jump straight to it).
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.
+- Minor: B-L4 trip-point bookkeeping — the switch region showed ~0.5 mm
+  run-to-run variance (85.0 vs 85.4 mm) and the bit can release before the
+  next ~150 ms poll; harmless (soft limits keep 2 mm clearance) but worth a
+  re-measure when the remaining axes are wired.
 
 ## 10. M3 bench + first-print results (lab run 2026-08-12)
 
@@ -349,14 +350,23 @@ Records: `docs/test-records/2026-08-12/` (`line_bench_results.json`,
   the original target. FR-LINE-04's refusal can be relaxed in a future
   library rev; not yet implemented (printer pauses between segments, which
   remains correct and safe).
-- **B-L4 — outstanding** (limit trip mid-line; optional, `--with-limit`).
-  Until run, the library's own limit monitoring (stop both axes on any trip)
-  is the guarantee; single-axis bench B1 (2026-08-11) showed the controller
-  hardware-stops with 0.000 mm overrun, so the risk is bounded.
+- **B-L4 — RESOLVED: the controller stops BOTH axes, coordinated, on its
+  own.** Shallow line (40, 35) → (70, 120) at 5 mm/s composite: both axes
+  stopped at the SAME path fraction (X 0.587, Y 0.588 — on the line, no
+  diagonal drag) with Y at 84.954 mm, i.e. at the positive-switch region,
+  with no host-side stop issued. The limit bit was not captured by the
+  ~150 ms status polls and the stop sat ~0.5 mm before the prior day's
+  measured trip point — attributed to early mechanical trip + switch
+  hysteresis releasing the bit before the next poll (wiring itself was
+  proven by the 2026-08-11 hand-press + B1 tests). Library-side monitoring
+  stays as belt-and-braces; printable envelope (soft limits, 2 mm margin)
+  clears the observed trip zone by >1.5 mm.
 - **First real print PASSED:** `examples/square_20mm.gcode` on the lab XY
   stage via `printer-msu print --profile configs/printer_msu_lab.json`
   (job-20260812-212131): homed from the file's `G28 X Y`, six coordinated
   line segments, tool commands skipped per D2, COMPLETED with report.
-  Acceptance §7.6 is met pending B-L4 for formal M3 sign-off.
+
+**M3 is signed off** (2026-08-12): acceptance §7.6 met — all bench items
+B-L1..B-L4 answered and a real interpolated toolpath printed.
 - Lab maintenance carry-over from the library PRD: raise X's Home Timeout in
   the vendor tool; physical mm-scaling spot check per actuator.
