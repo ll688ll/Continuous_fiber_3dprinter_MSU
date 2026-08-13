@@ -327,25 +327,13 @@ number), `PreflightError`, `JobError`.
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 
 ## 9. Open items
-- **Z axis bring-up (T0's Z, controller axis 2 — wired 2026-08-12).**
-  Config + profile are ready (`msu_lab.json` axis 2 `Z_T0`, lab profile maps
-  it; sim-verified end-to-end with `examples/two_layer_square.gcode`).
-  Lab sequence:
-  1. `python libs/fmc-motion/tools/device_para_check.py --config
-     configs/msu_lab.json` — the controller's own soft limit on the Z
-     channel is ±200 mm (a longer actuator needs it raised in the vendor
-     tool) and check Home Timeout.
-  2. `python libs/fmc-motion/tools/limit_monitor.py` — hand-press both Z
-     switches, confirm they appear on bit 2.
-  3. `python libs/fmc-motion/tools/hw_acceptance.py --config
-     configs/msu_lab.json --axes 0,1,2 --save` — full acceptance including
-     Z self-check; `--save` persists the discovered span into the config.
-  4. Jog Z and confirm which machine direction is physically "up"; the
-     config assumes negative homing like X/Y — flip `homing.direction` (or
-     the motor direction in the vendor tool) if the mechanics disagree.
-  5. `printer-msu print examples/two_layer_square.gcode --profile
-     configs/printer_msu_lab.json` — first real three-axis, two-layer path.
 - SRS Q1: tool controller hardware selection (blocks M5).
+- Vendor-tool maintenance: raise Home Timeout (10 s) for **X and Z** — both
+  are ~283 mm actuators whose far-end homing takes 14–19 s at configured
+  speeds. (X flagged since 2026-08-11; Z joins with the same geometry.)
+- Confirm which machine Z direction is physically "up" (sign convention for
+  real layer heights; matters before bed-zero calibration, SRS Q3).
+
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.
 - Minor: B-L4 trip-point bookkeeping — the switch region showed ~0.5 mm
@@ -356,7 +344,8 @@ number), `PreflightError`, `JobError`.
 ## 10. M3 bench + first-print results (lab run 2026-08-12)
 
 Records: `docs/test-records/2026-08-12/` (`line_bench_results.json`,
-`first_real_print_job.json`). Runner: `tools/hw_line_bench.py`.
+`retracted_no_motion_print_job.json`, `first_verified_print_job.json`).
+Runner: `tools/hw_line_bench.py`.
 
 - **B-L1 — RESOLVED: endpoints are ABSOLUTE machine coordinates**, in
   ascending-axis order (`endX` = lower axis index). From (20, 20) commanding
@@ -420,5 +409,30 @@ Records: `docs/test-records/2026-08-12/` (`line_bench_results.json`,
 **M3 is signed off** (2026-08-12, second pass): all bench items B-L1..B-L4
 answered, the silent-ignore defect found/fixed/regression-tested, and a
 real toolpath printed with position verification proving physical motion.
-- Lab maintenance carry-over from the library PRD: raise X's Home Timeout in
-  the vendor tool; physical mm-scaling spot check per actuator.
+
+## 11. Z-axis bring-up results (lab, night of 2026-08-12→13)
+
+T0's Z (controller axis 2, `Z_T0`) is fully commissioned; records in
+`docs/test-records/2026-08-13/`.
+
+- Limit switches verified on **bit 2** (hand-press, `limit_monitor.py`).
+- **Controller Z+ soft limit raised 200 → 300 mm in the vendor tool**
+  (Jacky): the actuator's span is ~282 mm, above the ±200 default that
+  would have clamped it (pre-raise snapshot:
+  `device_para_pre_limit_raise.json`).
+- **3-axis acceptance PASSED** (`hw_acceptance_report_3axis.json`,
+  reconstructed from console after an aborted re-run overwrote the file):
+  spans X 283.146 / Y 85.390 / **Z 282.306 mm** (X/Y within 0.03 mm of the
+  2026-08-11 values), move error 0.001 mm on all axes, queued moves and jog
+  clean, **e-stop dispatch 59.9 ms across 3 axes** (budget 500 ms), config
+  soft limits persisted via the new `hw_acceptance.py --save`.
+- **Two three-axis two-layer prints COMPLETED position-verified**
+  (`two_layer_square.gcode`, jobs 20260813-000059 / -000355): Z routed
+  through T0, layer changes 10.0 → 10.4 → 15 mm lift, all XY lines
+  interpolated. Record: `first_three_axis_print_job.json`.
+- Incidental robustness proof: the first print homed and ran cleanly right
+  after an acceptance re-run was Ctrl-C'd mid-creep — the −10 busy-retry
+  path recovered without operator intervention.
+
+The lab machine is now a validated 3-axis (X/Y/Z_T0) motion platform;
+remaining hardware work is the tool controller (SRS Q1, §9).

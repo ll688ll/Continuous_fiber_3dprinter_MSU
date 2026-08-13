@@ -5,7 +5,6 @@
     "port": 8088,
     "tcp_mode": 0
   },
-  "poll_interval_s": 0.25,
   "axes": [
     {
       "index": 0,
@@ -32,6 +31,7 @@
         "creep_speed": 5.0,
         "max_search_mm": 500.0,
         "margin_mm": 2.0,
+        "return_to_min": true,
         "park_offset_mm": 3.0
       },
       "jog": {
@@ -41,10 +41,11 @@
       "allow_unhomed": false,
       "soft_limits": {
         "min": 2.0,
-        "max": 281.16,
-        "span_mm": 283.16,
-        "discovered_at": "2026-08-12T02:45:11+00:00"
-      }
+        "max": 281.14599609375,
+        "span_mm": 283.14599609375,
+        "discovered_at": "2026-08-13T03:57:08+00:00"
+      },
+      "move_timeout_s": null
     },
     {
       "index": 1,
@@ -71,6 +72,7 @@
         "creep_speed": 5.0,
         "max_search_mm": 300.0,
         "margin_mm": 2.0,
+        "return_to_min": true,
         "park_offset_mm": 3.0
       },
       "jog": {
@@ -80,10 +82,11 @@
       "allow_unhomed": false,
       "soft_limits": {
         "min": 2.0,
-        "max": 83.42,
-        "span_mm": 85.42,
-        "discovered_at": "2026-08-12T02:45:38+00:00"
-      }
+        "max": 83.38999938964844,
+        "span_mm": 85.38999938964844,
+        "discovered_at": "2026-08-13T03:57:37+00:00"
+      },
+      "move_timeout_s": null
     },
     {
       "index": 2,
@@ -110,6 +113,7 @@
         "creep_speed": 5.0,
         "max_search_mm": 400.0,
         "margin_mm": 2.0,
+        "return_to_min": true,
         "park_offset_mm": 3.0
       },
       "jog": {
@@ -118,13 +122,16 @@
       },
       "allow_unhomed": false,
       "soft_limits": {
-        "min": null,
-        "max": null,
-        "span_mm": null,
-        "discovered_at": null
-      }
+        "min": 2.0,
+        "max": 280.3059997558594,
+        "span_mm": 282.3059997558594,
+        "discovered_at": "2026-08-13T03:58:20+00:00"
+      },
+      "move_timeout_s": null
     }
   ],
+  "poll_interval_s": 0.25,
+  "move_start_grace_s": null,
   "sim": {
     "time_scale": 10.0,
     "axes": {
@@ -139,8 +146,8 @@
         "overtravel_mm": 2.0
       },
       "2": {
-        "travel_mm": 150.0,
-        "start_pos_mm": 75.0,
+        "travel_mm": 282.0,
+        "start_pos_mm": 140.0,
         "overtravel_mm": 2.0
       }
     }

@@ -1,0 +1,73 @@
+{
+  "_note": "Reconstructed verbatim from the console output (the on-disk report was overwritten by an aborted re-run at 23:59:58, archived as hw_acceptance_report_aborted_rerun.json). Vendor-tool change preceding this run: Z channel (axis 2) controller soft limit raised 200 -> 300 mm because the actuator span is ~282 mm.",
+  "mode": "real",
+  "axes": [0, 1, 2],
+  "started": "2026-08-12 23:56:10",
+  "self_check": {
+    "started_at": "2026-08-13T03:56:10+00:00",
+    "finished_at": "2026-08-13T03:58:29+00:00",
+    "axes": [
+      {
+        "axis": 0,
+        "name": "X",
+        "passed": true,
+        "error": null,
+        "limit_negative_before": false,
+        "limit_positive_before": false,
+        "span_mm": 283.14599609375,
+        "soft_limit_min": 2.0,
+        "soft_limit_max": 281.14599609375,
+        "duration_s": 64.449
+      },
+      {
+        "axis": 1,
+        "name": "Y",
+        "passed": true,
+        "error": null,
+        "limit_negative_before": false,
+        "limit_positive_before": false,
+        "span_mm": 85.38999938964844,
+        "soft_limit_min": 2.0,
+        "soft_limit_max": 83.38999938964844,
+        "duration_s": 25.062
+      },
+      {
+        "axis": 2,
+        "name": "Z_T0",
+        "passed": true,
+        "error": null,
+        "limit_negative_before": false,
+        "limit_positive_before": true,
+        "span_mm": 282.3059997558594,
+        "soft_limit_min": 2.0,
+        "soft_limit_max": 280.3059997558594,
+        "duration_s": 49.323
+      }
+    ]
+  },
+  "moves": {
+    "0": {"target": 131.572998046875, "reached": 131.57200622558594, "error_mm": 0.001},
+    "1": {"target": 32.69499969482422, "reached": 32.694000244140625, "error_mm": 0.001},
+    "2": {"target": 131.1529998779297, "reached": 131.15199279785156, "error_mm": 0.001}
+  },
+  "queue": {
+    "0": {"all_done": true, "final_pos": 81.78600311279297},
+    "1": {"all_done": true, "final_pos": 32.34600067138672},
+    "2": {"all_done": true, "final_pos": 81.57599639892578}
+  },
+  "jog": {
+    "0": {"moved_mm": 13.62, "within_soft_limit": true},
+    "1": {"moved_mm": 13.62, "within_soft_limit": true},
+    "2": {"moved_mm": 13.604, "within_soft_limit": true}
+  },
+  "estop": {
+    "dispatch_all_axes_ms": 59.86,
+    "held_position": true,
+    "target_ms": 500.0,
+    "pass": true
+  },
+  "recovered": true,
+  "config_saved": "configs\\msu_lab.json",
+  "finished": "2026-08-12 23:59:24",
+  "passed": true
+}
