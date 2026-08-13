@@ -1,38 +1,106 @@
 {
-  "connection": {"device_id": 1, "ip": "192.168.0.30", "port": 8088, "tcp_mode": 0},
+  "connection": {
+    "device_id": 1,
+    "ip": "192.168.0.30",
+    "port": 8088,
+    "tcp_mode": 0
+  },
   "poll_interval_s": 0.02,
   "axes": [
     {
       "index": 0,
       "name": "X",
-      "homing": {"direction": "negative", "speed": 40.0, "accdec": 400.0, "fall_step": 2.0},
-      "defaults": {"speed": 80.0, "accel": 600.0, "decel": 600.0},
-      "max": {"speed": 200.0, "accel": 2000.0, "decel": 2000.0},
-      "jog": {"speed": 20.0, "max_step_unhomed": 5.0}
+      "homing": {
+        "direction": "negative",
+        "speed": 40.0,
+        "accdec": 400.0,
+        "fall_step": 2.0,
+        "clear_offset_mm": 5.0
+      },
+      "defaults": {
+        "speed": 80.0,
+        "accel": 600.0,
+        "decel": 600.0
+      },
+      "max": {
+        "speed": 200.0,
+        "accel": 2000.0,
+        "decel": 2000.0
+      },
+      "jog": {
+        "speed": 20.0,
+        "max_step_unhomed": 5.0
+      }
     },
     {
       "index": 1,
       "name": "Y",
-      "homing": {"direction": "negative", "speed": 40.0, "accdec": 400.0, "fall_step": 2.0},
-      "defaults": {"speed": 80.0, "accel": 600.0, "decel": 600.0},
-      "max": {"speed": 200.0, "accel": 2000.0, "decel": 2000.0},
-      "jog": {"speed": 20.0, "max_step_unhomed": 5.0}
+      "homing": {
+        "direction": "negative",
+        "speed": 40.0,
+        "accdec": 400.0,
+        "fall_step": 2.0,
+        "clear_offset_mm": 5.0
+      },
+      "defaults": {
+        "speed": 80.0,
+        "accel": 600.0,
+        "decel": 600.0
+      },
+      "max": {
+        "speed": 200.0,
+        "accel": 2000.0,
+        "decel": 2000.0
+      },
+      "jog": {
+        "speed": 20.0,
+        "max_step_unhomed": 5.0
+      }
     },
     {
       "index": 2,
       "name": "Z_T0",
-      "homing": {"direction": "negative", "speed": 20.0, "accdec": 200.0, "fall_step": 2.0},
-      "defaults": {"speed": 30.0, "accel": 300.0, "decel": 300.0},
-      "max": {"speed": 100.0, "accel": 1000.0, "decel": 1000.0},
-      "jog": {"speed": 10.0, "max_step_unhomed": 2.0}
+      "homing": {
+        "direction": "negative",
+        "speed": 20.0,
+        "accdec": 200.0,
+        "fall_step": 2.0,
+        "clear_offset_mm": 5.0
+      },
+      "defaults": {
+        "speed": 30.0,
+        "accel": 300.0,
+        "decel": 300.0
+      },
+      "max": {
+        "speed": 100.0,
+        "accel": 1000.0,
+        "decel": 1000.0
+      },
+      "jog": {
+        "speed": 10.0,
+        "max_step_unhomed": 2.0
+      }
     }
   ],
   "sim": {
     "time_scale": 20.0,
     "axes": {
-      "0": {"travel_mm": 283.0, "start_pos_mm": 140.0, "overtravel_mm": 2.0},
-      "1": {"travel_mm": 200.0, "start_pos_mm": 100.0, "overtravel_mm": 2.0},
-      "2": {"travel_mm": 150.0, "start_pos_mm": 75.0, "overtravel_mm": 2.0}
+      "0": {
+        "travel_mm": 283.0,
+        "start_pos_mm": 140.0,
+        "overtravel_mm": 2.0
+      },
+      "1": {
+        "travel_mm": 200.0,
+        "start_pos_mm": 100.0,
+        "overtravel_mm": 2.0
+      },
+      "2": {
+        "travel_mm": 150.0,
+        "start_pos_mm": 75.0,
+        "overtravel_mm": 2.0
+      }
     }
   }
 }

@@ -1,0 +1,48 @@
+{
+  "post_home": {
+    "0": {
+      "pos": 0.0,
+      "limit_neg": true,
+      "limit_pos": false
+    },
+    "1": {
+      "pos": 0.0,
+      "limit_neg": true,
+      "limit_pos": false
+    }
+  },
+  "line_from_post_home": {
+    "targets": {
+      "0": 10.0,
+      "1": 10.0
+    },
+    "duration_s": 2.0,
+    "error": null,
+    "final": {
+      "0": 0.0,
+      "1": 0.0
+    },
+    "moved_to_target": false
+  },
+  "single_axis_clear": {
+    "final": {
+      "0": 15.0,
+      "1": 15.0
+    },
+    "moved_to_target": true
+  },
+  "line_when_clear": {
+    "targets": {
+      "0": 40.0,
+      "1": 30.0
+    },
+    "duration_s": 2.42,
+    "error": null,
+    "final": {
+      "0": 40.0,
+      "1": 30.0
+    },
+    "moved_to_target": true
+  },
+  "verdict": "CONFIRMED: the controller silently ignores Line_2Axis at/near the home switch; a post-home clearance move fixes it"
+}

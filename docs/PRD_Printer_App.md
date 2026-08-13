@@ -327,11 +327,15 @@ number), `PreflightError`, `JobError`.
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 
 ## 9. Open items
-- **Silent no-motion defect (blocks M3 §7.6):** `Line_2Axis` accepted
-  (rc=0) but not executed when fired from the post-home position — run
-  `python libs/fmc-motion/tools/hw_lib_line_check.py` on the lab machine to
-  confirm the near-switch hypothesis; the fix is likely a post-home
-  clearance move (engine `homing` option) or larger `fall_step`.
+- **Silent no-motion defect — CAUSE CONFIRMED, FIX SHIPPED, lab re-run
+  pending (blocks M3 §7.6):** `hw_lib_line_check.py` (2026-08-12) proved
+  the controller ignores `Line_2Axis` while a limit switch is active, and
+  the home switch stays engaged at the post-home rest position. Fixed in
+  fmc-motion v0.2.1: `homing.clear_offset_mm = 5.0` (post-home clearance,
+  set in both machine configs) + engine success-path target verification
+  (0.5 mm) + the runner's own 0.25 mm check. Remaining: re-run
+  `printer-msu print examples/square_20mm.gcode --profile
+  configs/printer_msu_lab.json` — COMPLETED now guarantees physical motion.
 - SRS Q1: tool controller hardware selection (blocks M5).
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.

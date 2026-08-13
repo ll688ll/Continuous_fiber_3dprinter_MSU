@@ -244,6 +244,7 @@ class SimMotionController(EngineController):
         self._inject_vendor_errors: list[int] = []
         self._inject_limit_stuck: dict[tuple[int, str], bool] = {}
         self._inject_hw_estop = False
+        self._inject_ignore_count = 0
         #: command history for test assertions (FR-SIM-05)
         self.history: list[dict[str, Any]] = []
 
@@ -279,6 +280,12 @@ class SimMotionController(EngineController):
         with self._model_lock:
             self._models[axis].stalled = stalled
 
+    def inject_silent_ignore(self, count: int = 1) -> None:
+        """The next ``count`` move/line dispatches are accepted (rc=0) but do
+        nothing — models the controller ignoring commands while a limit
+        switch is engaged (observed on hardware 2026-08-12)."""
+        self._inject_ignore_count = count
+
     # ------------------------------------------------------------ ll interface
     def _record(self, op: str, **params: Any) -> None:
         self.history.append({"op": op, "t": round(self._now(), 6), **params})
@@ -313,6 +320,10 @@ class SimMotionController(EngineController):
             t = self._now()
             if not model.is_stopped(t):
                 raise DeviceBusyError(f"axis {axis} busy (vendor -10)")
+            if self._inject_ignore_count > 0:
+                self._inject_ignore_count -= 1
+                self._record("move", axis=axis, value=value, ignored=True)
+                return
             pos, _ = model.current(t)
             target_internal = pos + value if relative else model.to_internal(value)
             model.start_move(t, target_internal, speed, accel, decel)
@@ -331,6 +342,10 @@ class SimMotionController(EngineController):
             for a, model in models.items():
                 if not model.is_stopped(t):
                     raise DeviceBusyError(f"axis {a} busy (vendor -10)")
+            if self._inject_ignore_count > 0:
+                self._inject_ignore_count -= 1
+                self._record("line", targets=dict(targets), ignored=True)
+                return
             internal = {a: m.to_internal(targets[a]) for a, m in models.items()}
             deltas = {a: internal[a] - m.current(t)[0] for a, m in models.items()}
             length = math.sqrt(sum(d * d for d in deltas.values()))

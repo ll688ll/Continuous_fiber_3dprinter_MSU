@@ -36,6 +36,12 @@ class HomingConfig:
     speed: float = 20.0
     accdec: float = 200.0
     fall_step: float = 2.0  # vendor back-off distance after the switch trips
+    #: after homing, move to this position (mm from home, away from the
+    #: switch). The home switch stays engaged past its trip point
+    #: (hysteresis), and the controller SILENTLY IGNORES interpolated
+    #: moves while any limit switch is active (lab 2026-08-12) — the
+    #: vendor fall_step alone does not release the switch. 0 = disabled.
+    clear_offset_mm: float = 0.0
 
 
 @dataclass
@@ -154,6 +160,8 @@ class ControllerConfig:
                 raise ConfigError(f"{prefix}: homing speed/accdec must be > 0")
             if ax.homing.fall_step < 0:
                 raise ConfigError(f"{prefix}: homing.fall_step must be >= 0")
+            if ax.homing.clear_offset_mm < 0:
+                raise ConfigError(f"{prefix}: homing.clear_offset_mm must be >= 0")
             if ax.self_check.creep_speed <= 0 or ax.self_check.max_search_mm <= 0:
                 raise ConfigError(f"{prefix}: self_check creep_speed/max_search_mm must be > 0")
             if ax.self_check.margin_mm < 0:

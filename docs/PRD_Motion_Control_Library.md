@@ -461,5 +461,25 @@ to target) — the pause-on-line refusal can be relaxed in a future rev.
 B-L4: a limit trip during a line is handled by the **controller itself,
 stopping both axes coordinated on-path** (equal path fractions, no drag);
 the bit can release before the next ~150 ms poll, so library-side monitoring
-stays as belt-and-braces. First real interpolated print completed the same
-day — **all v1.1 bench items closed.**
+stays as belt-and-braces. **All v1.1 bench items closed.**
+
+### v1.1.1 — silent-ignore defect and fix (lab 2026-08-12, evening)
+A full print through the library "completed" with **zero motion**: every
+`Line_2Axis` returned rc=0 but the controller executed nothing. Diagnosis
+(`tools/hw_lib_line_check.py`, library-path repro): **the controller
+silently ignores interpolated moves while a limit switch is active**, and
+after homing the axis rests at 0.0 with the home switch still engaged —
+the vendor `fall_step` (2 mm) does not clear the switch hysteresis.
+Single-axis moves are accepted from the switch; a line from a cleared
+position works. Fixes (v0.2.1):
+- **`homing.clear_offset_mm`** (default 0 = old behavior): after homing,
+  the engine moves the axis to this position away from the switch.
+  `configs/msu_lab.json` and `configs/sim_machine.json` set **5.0 mm**
+  (empirically clear — the self-check park fix proved release ≤ 5 mm).
+- **Success-path target verification** (0.5 mm) on single-axis and line
+  moves: a "stopped" axis that never reached its target now raises
+  `MotionError` instead of reporting success — this also catches B-L4-style
+  hardware limit stops whose bit a poll missed.
+- Sim models the behavior via `inject_silent_ignore()` so both fixes are
+  exercised in CI.
+Real-machine re-run of a full print (position-verified) still pending.

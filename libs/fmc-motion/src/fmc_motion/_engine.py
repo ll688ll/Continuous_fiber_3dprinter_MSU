@@ -71,6 +71,12 @@ class LLSnapshot:
     run_state: str = "idle"
 
 
+#: success-path position verification: a "stopped" axis that never reached
+#: its target means the controller silently ignored the command (observed on
+#: hardware 2026-08-12 with Line_2Axis while a limit switch was active) or
+#: hardware-stopped without the limit bit being caught by a poll (B-L4).
+_TARGET_TOLERANCE_MM = 0.5
+
 # ----------------------------------------------------------------------- cmds
 _KIND_MOVE = "move"
 _KIND_HOME = "home"
@@ -858,7 +864,33 @@ class EngineController(MotionController):
         with self._state_lock:
             rt.homed = True
             rt.predicted_end = None
+        if h.clear_offset_mm > 0:
+            self._exec_home_clearance(rt, cmd)
         cmd.handle._finish_ok()
+
+    def _exec_home_clearance(self, rt: _AxisRuntime, cmd: _Cmd) -> None:
+        """Move off the home switch after homing (homing.clear_offset_mm).
+
+        The switch stays engaged past its trip point (hysteresis) and the
+        controller silently ignores interpolated moves while any limit
+        switch is active (lab 2026-08-12), so homing must not leave the
+        axis parked on the switch. Single-axis moves away from an active
+        switch are accepted (homing fall-back relies on that)."""
+        axis = rt.cfg.index
+        h = rt.cfg.homing
+        away = 1.0 if h.direction == HOMING_NEGATIVE else -1.0
+        target = away * h.clear_offset_mm
+        pos = self._snapshot(max_age=0.0).positions[axis]
+        if (target - pos) * away <= 1e-6:
+            return  # already at/beyond the clearance point
+        logger.info("home axis=%s: clearing switch, move to %.3f mm", axis, target)
+        self._ll_dispatch_retrying_busy(
+            rt,
+            lambda: self._ll_move(axis, target, h.speed, h.accdec, h.accdec,
+                                  relative=False),
+        )
+        self._start_grace_wait(rt)
+        self._poll_until_stopped(rt, cmd, check_limits=False)
 
     def _exec_move(self, rt: _AxisRuntime, cmd: _Cmd) -> None:
         axis = rt.cfg.index
@@ -890,7 +922,15 @@ class EngineController(MotionController):
         )
         self._start_grace_wait(rt)
         self._poll_until_stopped(rt, cmd, check_limits=True, direction=direction)
-        cmd.handle._finish_ok(self._snapshot(max_age=0.0).positions[axis])
+        final = self._snapshot(max_age=0.0).positions[axis]
+        if abs(final - target) > _TARGET_TOLERANCE_MM:
+            raise MotionError(
+                f"axis {axis}: move reported stopped at {final:.3f} mm but the "
+                f"target was {target:.3f} mm — the controller silently ignored "
+                f"or aborted the command (limit switch engaged? check "
+                f"homing.clear_offset_mm)"
+            )
+        cmd.handle._finish_ok(final)
 
     def _exec_creep(self, rt: _AxisRuntime, cmd: _Cmd) -> None:
         """Self-check range search: relative move toward the far switch.
@@ -1095,6 +1135,17 @@ class EngineController(MotionController):
             time.sleep(self._poll_sleep_s)
 
         final = self._snapshot(max_age=0.0)
+        missed = {a: final.positions[a] for a in axes
+                  if abs(final.positions[a] - group.targets[a]) > _TARGET_TOLERANCE_MM}
+        if missed:
+            detail = ", ".join(f"axis {a}: at {p:.3f} vs target "
+                               f"{group.targets[a]:.3f}"
+                               for a, p in sorted(missed.items()))
+            raise MotionError(
+                f"line move reported stopped away from its target ({detail}) — "
+                f"the controller silently ignored the move (known behavior "
+                f"while a limit switch is engaged; set homing.clear_offset_mm)"
+            )
         handle._finish_ok({a: final.positions[a] for a in axes})
 
     def _poll_until_stopped(self, rt: _AxisRuntime, cmd: _Cmd, *,
