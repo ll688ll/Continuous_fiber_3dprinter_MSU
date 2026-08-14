@@ -1,0 +1,54 @@
+{
+  "job_id": "job-20260813-224538",
+  "gcode_path": "examples\\xy_diag_check.gcode",
+  "gcode_sha256": "7e081285134b5e9743d18417e60c5d0536aa7acafc16c7f065507ccb78fd0b1a",
+  "profile": {
+    "profile_name": "MSU lab XYZ stage (real, T0 Z on axis 2)",
+    "motion": {
+      "config": "C:\\Local_projects\\Continuous_fiber_3dprinter_MSU\\.claude\\worktrees\\vigorous-kowalevski-709ee5\\configs\\msu_lab.json",
+      "mode": "real",
+      "axis_map": {
+        "X": 0,
+        "Y": 1,
+        "Z_T0": 2
+      }
+    },
+    "tools": [
+      {
+        "tool_index": 0,
+        "z_axis": "Z_T0"
+      }
+    ],
+    "gcode": {
+      "default_tool": 0,
+      "default_feed_mm_min": 1200.0,
+      "travel_feed_mm_min": 2400.0
+    },
+    "workspace": {
+      "xy_offset": {
+        "X": 30.0,
+        "Y": 30.0
+      },
+      "z_mode": "bed",
+      "z_bed_offset_mm": 100.0
+    },
+    "policies": {
+      "unknown_command": "warn",
+      "tool_commands": "skip",
+      "missing_axis": "error",
+      "feed_over_max": "clamp",
+      "require_homed": true,
+      "home_before_print": false,
+      "stream_window": 4
+    }
+  },
+  "mode": "real",
+  "started_at": "2026-08-14T02:45:39+00:00",
+  "finished_at": "2026-08-14T02:46:33+00:00",
+  "end_reason": "completed",
+  "final_state": "completed",
+  "last_line": 15,
+  "skipped_commands": {},
+  "warnings": [],
+  "error": null
+}
