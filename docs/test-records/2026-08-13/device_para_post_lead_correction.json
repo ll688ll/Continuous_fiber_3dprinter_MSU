@@ -1,0 +1,61 @@
+{
+  "device_id": 1,
+  "ip": "192.168.0.30",
+  "port": 8088,
+  "axes": {
+    "0": {
+      "lead_mm_per_rev": 35,
+      "div_pulses_per_rev": 5000,
+      "pulses_per_mm": 142.85714285714286,
+      "soft_limit_positive_mm": 2000,
+      "soft_limit_negative_mm": 2000,
+      "home_timeout": 10000,
+      "encoder_resolution": 1000
+    },
+    "1": {
+      "lead_mm_per_rev": 35,
+      "div_pulses_per_rev": 5000,
+      "pulses_per_mm": 142.85714285714286,
+      "soft_limit_positive_mm": 300,
+      "soft_limit_negative_mm": 300,
+      "home_timeout": 10000,
+      "encoder_resolution": 1000
+    },
+    "2": {
+      "lead_mm_per_rev": 10,
+      "div_pulses_per_rev": 5000,
+      "pulses_per_mm": 500.0,
+      "soft_limit_positive_mm": 300,
+      "soft_limit_negative_mm": 300,
+      "home_timeout": 10000,
+      "encoder_resolution": 1000
+    },
+    "3": {
+      "lead_mm_per_rev": 10,
+      "div_pulses_per_rev": 5000,
+      "pulses_per_mm": 500.0,
+      "soft_limit_positive_mm": 200,
+      "soft_limit_negative_mm": 200,
+      "home_timeout": 10000,
+      "encoder_resolution": 1000
+    },
+    "4": {
+      "lead_mm_per_rev": 10,
+      "div_pulses_per_rev": 5000,
+      "pulses_per_mm": 500.0,
+      "soft_limit_positive_mm": 200,
+      "soft_limit_negative_mm": 200,
+      "home_timeout": 10000,
+      "encoder_resolution": 1000
+    },
+    "5": {
+      "lead_mm_per_rev": 10,
+      "div_pulses_per_rev": 5000,
+      "pulses_per_mm": 500.0,
+      "soft_limit_positive_mm": 200,
+      "soft_limit_negative_mm": 200,
+      "home_timeout": 10000,
+      "encoder_resolution": 1000
+    }
+  }
+}

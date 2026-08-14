@@ -327,7 +327,16 @@ number), `PreflightError`, `JobError`.
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 
 ## 9. Open items
-- SRS Q1: tool controller hardware selection (blocks M5).
+- SRS Q1: tool controller hardware selection (blocks M5) — options drafted
+  in `docs/Tool_Controller_Options_Q1.md`, decision pending.
+- **Re-run X/Y self-check after the 2026-08-13 lead correction** (X/Y screw
+  lead fixed 10 → 35 mm/rev in the vendor tool; real spans ≈ 991 / 299 mm,
+  3.5× every previously recorded X/Y figure): the persisted soft limits are
+  stale-conservative and marked STALE in `configs/msu_lab.json`;
+  `max_search`/creep already rescaled. Run `hw_acceptance.py --config
+  configs/msu_lab.json --axes 0,1 --save`. Also recommended: raise the
+  controller clamps for Y (300 vs ~299 mm real span — razor-thin) and Z
+  (300 vs 282 mm) to 400 in the vendor tool.
 - **Per-tool Z frame transform (needed before slicer-native prints; part of
   SRS Q3 calibration):** machine Z zero is at the TOP (home far from the
   print plane — confirmed intentional 2026-08-13), so machine Z increases

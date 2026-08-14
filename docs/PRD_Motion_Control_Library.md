@@ -403,7 +403,7 @@ vendor application). Observed defaults and their implications:
 
 | Parameter | Value | Implication |
 |---|---|---|
-| lead / div | 10 mm / 5000 | 500 pulses/mm (2 um resolution); mm scaling **assumes a 10 mm screw lead on every channel** — verify physically per actuator |
+| lead / div | X/Y: **35 mm** / 5000 (corrected 2026-08-13); Z+others: 10 mm / 5000 | X/Y: 142.9 pulses/mm; Z: 500 pulses/mm. **History caveat: every X/Y "mm" figure recorded before 2026-08-13 (spans 283/85, squares, bench positions) was physically 3.5× larger** — real spans are X ≈ 991 mm, Y ≈ 299 mm. Z figures were always true. |
 | encoder | 1000 /rev | encoder feedback resolution (100 counts/mm at lead 10) |
 | controller soft limits | X: ±2000 mm; **Y/X1/Y1/Z1: ±200 mm**; Z: +300 (raised 2026-08-13) | the controller clamps motion independently of the library. A long actuator (>200 mm, like the ~283 mm units) needs the channel's limit raised in the vendor tool — done for Z when its 282 mm actuator was commissioned |
 | Home Timeout | 10000 (ms) | homing a 280 mm axis from the far end at 20 mm/s takes ~14 s → **would exceed the timeout**; raise it (e.g. 30000) or home faster |

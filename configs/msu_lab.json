@@ -28,8 +28,8 @@
         "decel": 1000.0
       },
       "self_check": {
-        "creep_speed": 5.0,
-        "max_search_mm": 500.0,
+        "creep_speed": 15.0,
+        "max_search_mm": 1200.0,
         "margin_mm": 2.0,
         "return_to_min": true,
         "park_offset_mm": 3.0
@@ -43,7 +43,7 @@
         "min": 2.0,
         "max": 281.14599609375,
         "span_mm": 283.14599609375,
-        "discovered_at": "2026-08-13T03:57:08+00:00"
+        "discovered_at": "2026-08-13T03:57:08+00:00 STALE: pre-lead-correction scale (real span ~991 mm); re-run self-check"
       },
       "move_timeout_s": null
     },
@@ -69,8 +69,8 @@
         "decel": 1000.0
       },
       "self_check": {
-        "creep_speed": 5.0,
-        "max_search_mm": 300.0,
+        "creep_speed": 10.0,
+        "max_search_mm": 400.0,
         "margin_mm": 2.0,
         "return_to_min": true,
         "park_offset_mm": 3.0
@@ -84,7 +84,7 @@
         "min": 2.0,
         "max": 83.38999938964844,
         "span_mm": 85.38999938964844,
-        "discovered_at": "2026-08-13T03:57:37+00:00"
+        "discovered_at": "2026-08-13T03:57:37+00:00 STALE: pre-lead-correction scale (real span ~299 mm); re-run self-check"
       },
       "move_timeout_s": null
     },
@@ -136,12 +136,12 @@
     "time_scale": 10.0,
     "axes": {
       "0": {
-        "travel_mm": 283.0,
+        "travel_mm": 991.0,
         "start_pos_mm": 140.0,
         "overtravel_mm": 2.0
       },
       "1": {
-        "travel_mm": 85.0,
+        "travel_mm": 299.0,
         "start_pos_mm": 40.0,
         "overtravel_mm": 2.0
       },
