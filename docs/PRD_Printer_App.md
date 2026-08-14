@@ -328,7 +328,12 @@ number), `PreflightError`, `JobError`.
 
 ## 9. Open items
 - SRS Q1: tool controller hardware selection (blocks M5) — options drafted
-  in `docs/Tool_Controller_Options_Q1.md`, decision pending.
+  in `docs/Tool_Controller_Options_Q1.md`; **decision D-Q1a (2026-08-13):
+  the FMC is motion-only — channels reserved for X, Y, Z_T0/Z_T1/Z_T2 —
+  and the extruder lives on the future tool controller (per SRS D7), so
+  extrusion + the Q2 sync design are deferred together.** Board choice
+  (recommendation: Marlin-class board for heat/TC/fan/E) still pending
+  Jacky's inputs on heater spec, extruder motor, fiber cutter, budget.
 - **Re-run X/Y self-check after the 2026-08-13 lead correction** (X/Y screw
   lead fixed 10 → 35 mm/rev in the vendor tool; real spans ≈ 991 / 299 mm,
   3.5× every previously recorded X/Y figure): the persisted soft limits are
