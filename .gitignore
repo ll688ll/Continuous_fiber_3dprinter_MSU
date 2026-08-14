@@ -11,3 +11,4 @@ logs/
 /line_bench_results.json
 /lib_line_check_results.json
 /device_para.json
+/direction_check_results.json
