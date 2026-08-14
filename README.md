@@ -1,5 +1,14 @@
 ## Continuous fiber 3d printer
 
+**Status (2026-08-13):** the motion platform is done and hardware-proven —
+X/Y/Z_T0 commissioned at true scale (987 × 290 × 282 mm), coordinated XY
+line interpolation, homing with switch clearance, soft limits, e-stop
+(~60 ms), position-verified prints. A full Cura-sliced file runs end-to-end
+(mid-air dry run; tool commands skipped). CLI + PySide6 print console
+shipped. Next: **M6** continuous motion via the controller's Auto Run
+script mode (PRD §8), and **M5** tool controller once hardware is chosen
+(`docs/Tool_Controller_Options_Q1.md`).
+
 Customized multi-axis 3D printer control software (desktop) for a multi-module platform:
 
 - **XY** base motion for printing.

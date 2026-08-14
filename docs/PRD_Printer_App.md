@@ -352,8 +352,21 @@ number), `PreflightError`, `JobError`.
    thread per UI-010) and `ui/print_console.py` (window). Tested offscreen
    against the sim backend (`tests/test_ui_console.py`); skipped when
    PySide6 (the `[ui]` extra) is absent. Lab (real-mode) shakeout pending.
-5. **M5+ (deferred)**: tool controller integration (pending SRS Q1 hardware),
-   `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
+5. **M5 (blocked on Q1 inputs)**: tool controller integration
+   (`MarlinToolController` per `docs/Tool_Controller_Options_Q1.md` R1),
+   `ACT_MOVE_LINEAR_SYNC`, thermal policies; then arc segmentation,
+   resume-from-line, profiles UI.
+6. **M6 — continuous motion via vendor Auto Run (NEXT, new session)**:
+   scope in §9. Independent of M5 — can start immediately. Plan sketch:
+   (a) read `docs/FMC006GE31-自动化编程_V1.2.docx` for the `.elo` script
+   language; (b) script generator from the interpreted action stream;
+   (c) backend: `Download_File(type=2)` + `Start_Auto_Run` +
+   `Get_Machine_Atuo_Status` progress polling, `Pause/Resume/Stop_Auto_Run`
+   mapped to the job controls; (d) bench: segment blending behavior,
+   status latency, pause/resume, power-loss resume-by-line; (e) sim twin +
+   the runner picks Auto Run vs live streaming per job (policy). Expected
+   win: eliminates the remaining ~0.4–0.5 s inter-segment dwell — motion
+   quality that matters for fiber placement.
 
 ## 9. Open items
 - **Continuous motion via the vendor's Auto Run mode (candidate M6 /
