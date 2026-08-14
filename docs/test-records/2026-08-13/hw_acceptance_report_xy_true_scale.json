@@ -1,0 +1,80 @@
+{
+  "mode": "real",
+  "axes": [
+    0,
+    1
+  ],
+  "started": "2026-08-13 21:47:02",
+  "self_check": {
+    "started_at": "2026-08-14T01:47:02+00:00",
+    "finished_at": "2026-08-14T01:49:09+00:00",
+    "axes": [
+      {
+        "axis": 0,
+        "name": "X",
+        "passed": true,
+        "error": null,
+        "limit_negative_before": false,
+        "limit_positive_before": false,
+        "span_mm": 987.447998046875,
+        "soft_limit_min": 2.0,
+        "soft_limit_max": 985.447998046875,
+        "duration_s": 87.279
+      },
+      {
+        "axis": 1,
+        "name": "Y",
+        "passed": true,
+        "error": null,
+        "limit_negative_before": false,
+        "limit_positive_before": false,
+        "span_mm": 290.2690124511719,
+        "soft_limit_min": 2.0,
+        "soft_limit_max": 288.2690124511719,
+        "duration_s": 40.423
+      }
+    ]
+  },
+  "moves": {
+    "0": {
+      "target": 483.7239990234375,
+      "reached": 483.7279968261719,
+      "error_mm": 0.004
+    },
+    "1": {
+      "target": 135.13450622558594,
+      "reached": 135.13499450683594,
+      "error_mm": 0.0005
+    }
+  },
+  "queue": {
+    "0": {
+      "all_done": true,
+      "final_pos": 257.85198974609375
+    },
+    "1": {
+      "all_done": true,
+      "final_pos": 83.55899810791016
+    }
+  },
+  "jog": {
+    "0": {
+      "moved_mm": 13.608,
+      "within_soft_limit": true
+    },
+    "1": {
+      "moved_mm": 13.601,
+      "within_soft_limit": true
+    }
+  },
+  "estop": {
+    "dispatch_all_axes_ms": 59.54,
+    "held_position": true,
+    "target_ms": 500.0,
+    "pass": true
+  },
+  "recovered": true,
+  "config_saved": "configs\\msu_lab.json",
+  "finished": "2026-08-13 21:50:10",
+  "passed": true
+}

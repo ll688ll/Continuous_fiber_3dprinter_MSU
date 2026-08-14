@@ -41,9 +41,9 @@
       "allow_unhomed": false,
       "soft_limits": {
         "min": 2.0,
-        "max": 281.14599609375,
-        "span_mm": 283.14599609375,
-        "discovered_at": "2026-08-13T03:57:08+00:00 STALE: pre-lead-correction scale (real span ~991 mm); re-run self-check"
+        "max": 985.447998046875,
+        "span_mm": 987.447998046875,
+        "discovered_at": "2026-08-14T01:48:10+00:00"
       },
       "move_timeout_s": null
     },
@@ -82,9 +82,9 @@
       "allow_unhomed": false,
       "soft_limits": {
         "min": 2.0,
-        "max": 83.38999938964844,
-        "span_mm": 85.38999938964844,
-        "discovered_at": "2026-08-13T03:57:37+00:00 STALE: pre-lead-correction scale (real span ~299 mm); re-run self-check"
+        "max": 288.2690124511719,
+        "span_mm": 290.2690124511719,
+        "discovered_at": "2026-08-14T01:49:03+00:00"
       },
       "move_timeout_s": null
     },
@@ -136,12 +136,12 @@
     "time_scale": 10.0,
     "axes": {
       "0": {
-        "travel_mm": 991.0,
+        "travel_mm": 987.4,
         "start_pos_mm": 140.0,
         "overtravel_mm": 2.0
       },
       "1": {
-        "travel_mm": 299.0,
+        "travel_mm": 290.3,
         "start_pos_mm": 40.0,
         "overtravel_mm": 2.0
       },

@@ -353,14 +353,18 @@ number), `PreflightError`, `JobError`.
   extrusion + the Q2 sync design are deferred together.** Board choice
   (recommendation: Marlin-class board for heat/TC/fan/E) still pending
   Jacky's inputs on heater spec, extruder motor, fiber cutter, budget.
-- **Re-run X/Y self-check after the 2026-08-13 lead correction** (X/Y screw
-  lead fixed 10 → 35 mm/rev in the vendor tool; real spans ≈ 991 / 299 mm,
-  3.5× every previously recorded X/Y figure): the persisted soft limits are
-  stale-conservative and marked STALE in `configs/msu_lab.json`;
-  `max_search`/creep already rescaled. Run `hw_acceptance.py --config
-  configs/msu_lab.json --axes 0,1 --save`. Also recommended: raise the
-  controller clamps for Y (300 vs ~299 mm real span — razor-thin) and Z
-  (300 vs 282 mm) to 400 in the vendor tool.
+- ~~Re-run X/Y self-check after the lead correction~~ **DONE 2026-08-13
+  21:47 — true-scale spans discovered and persisted: X 987.448 mm, Y
+  290.269 mm** (soft limits [2, 985.4] / [2, 288.3]; move error ≤
+  0.004 mm; e-stop 59.5 ms; records in `docs/test-records/2026-08-13/`).
+  En route, a wrong-way homing incident (axes drove to the POSITIVE end
+  on commanded-negative homing after the vendor parameter edit) was
+  resolved at the vendor tool; `tools/hw_direction_check.py` then verified
+  polarity NORMAL on all three axes. X's vendor Home Timeout raised to
+  30000. Y clamp headroom is ~10 mm (span 290.3 vs ±300) — adequate.
+  Probe finding: commanding motion INTO an active limit switch returns
+  rc=0 with zero motion (silent refusal, same family as the line-move
+  behavior).
 - **Z/XY frame transforms: IMPLEMENTED 2026-08-13 (FR-INT-08), calibration
   pending.** The workspace section handles `machine_z = z_bed_offset −
   gcode_z` and XY bed-origin offsets; validated end-to-end against a real

@@ -1,0 +1,50 @@
+{
+  "axis0": {
+    "before": {
+      "pos": -1.953,
+      "limit_negative": true,
+      "limit_positive": false
+    },
+    "after": {
+      "pos": -1.953,
+      "limit_negative": true,
+      "limit_positive": false
+    },
+    "reported_moved_mm": 0.0,
+    "dispatch_rc": 0,
+    "stopped": true,
+    "verdict": "on the - switch and refused to move negative: expected; re-run after backing off to classify"
+  },
+  "axis1": {
+    "before": {
+      "pos": 0.0,
+      "limit_negative": false,
+      "limit_positive": false
+    },
+    "after": {
+      "pos": -1.988,
+      "limit_negative": true,
+      "limit_positive": false
+    },
+    "reported_moved_mm": -1.988,
+    "dispatch_rc": 0,
+    "stopped": true,
+    "verdict": "NORMAL (operator confirmed physical negative motion)"
+  },
+  "axis2": {
+    "before": {
+      "pos": 0.0,
+      "limit_negative": false,
+      "limit_positive": false
+    },
+    "after": {
+      "pos": -2.212,
+      "limit_negative": true,
+      "limit_positive": false
+    },
+    "reported_moved_mm": -2.212,
+    "dispatch_rc": 0,
+    "stopped": true,
+    "verdict": "NORMAL (operator confirmed physical negative motion)"
+  }
+}
