@@ -3,10 +3,17 @@
   "motion": {
     "config": "sim_machine.json",
     "mode": "sim",
-    "axis_map": {"X": 0, "Y": 1, "Z_T0": 2}
+    "axis_map": {
+      "X": 0,
+      "Y": 1,
+      "Z_T0": 2
+    }
   },
   "tools": [
-    {"tool_index": 0, "z_axis": "Z_T0"}
+    {
+      "tool_index": 0,
+      "z_axis": "Z_T0"
+    }
   ],
   "gcode": {
     "default_tool": 0,
@@ -20,5 +27,13 @@
     "feed_over_max": "clamp",
     "require_homed": true,
     "home_before_print": false
+  },
+  "workspace": {
+    "xy_offset": {
+      "X": 30.0,
+      "Y": 30.0
+    },
+    "z_mode": "bed",
+    "z_bed_offset_mm": 250.0
   }
 }

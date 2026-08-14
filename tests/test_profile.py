@@ -68,6 +68,18 @@ def test_default_tool_must_exist():
         make_profile(gcode={"default_tool": 7})
 
 
+def test_workspace_validation():
+    profile = make_profile(workspace={"xy_offset": {"X": 30.0},
+                                      "z_mode": "bed", "z_bed_offset_mm": 250.0})
+    assert profile.workspace.z_bed_offset_mm == 250.0
+    with pytest.raises(ProfileError, match="z_bed_offset_mm"):
+        make_profile(workspace={"z_mode": "bed"})
+    with pytest.raises(ProfileError, match="only X/Y"):
+        make_profile(workspace={"xy_offset": {"Z_T0": 5.0}})
+    with pytest.raises(ProfileError, match="z_mode"):
+        make_profile(workspace={"z_mode": "upside-down"})
+
+
 def test_load_profile_resolves_config_relative_to_file(tmp_path):
     import json
 

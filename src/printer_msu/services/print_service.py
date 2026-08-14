@@ -134,7 +134,64 @@ def run_preflight(profile: MachineProfile, adapter,
     if not moves and not any(isinstance(a, HomeAxes) for a in result.actions):
         report.add("warning", "file produces no motion at all")
 
+    if not offline:
+        _check_envelope(profile, adapter, result, report)
+
     return report
+
+
+def _check_envelope(profile: MachineProfile, adapter,
+                    result: InterpretResult, report: PreflightReport) -> None:
+    """FR-PRE-03: walk the (machine-frame) move stream and flag targets
+    outside the discovered soft limits, per axis, before anything moves."""
+    limits = adapter.soft_limits()
+    positions: dict[str, float] = {}
+    violations: dict[str, list[tuple[int, float]]] = {}
+    unchecked_relative = 0
+    for action in result.actions:
+        if isinstance(action, HomeAxes):
+            covered = (action.axes if action.axes is not None
+                       else tuple(profile.motion.axis_map))
+            for axis in covered:
+                lo_hi = limits.get(axis)
+                # approximation: homing parks near the low end (clearance)
+                positions[axis] = lo_hi[0] if lo_hi else 0.0
+        elif isinstance(action, MoveLinear):
+            for axis, value in action.axes.items():
+                if action.relative:
+                    if axis not in positions:
+                        unchecked_relative += 1
+                        continue
+                    positions[axis] += value
+                else:
+                    positions[axis] = value
+                lo_hi = limits.get(axis)
+                if lo_hi is None:
+                    continue
+                lo, hi = lo_hi
+                target = positions[axis]
+                if not (lo - 1e-6 <= target <= hi + 1e-6):
+                    violations.setdefault(axis, []).append(
+                        (action.line_no, target))
+    for axis in sorted(limits):
+        if limits[axis] is None and any(
+                axis in a.axes for a in result.actions
+                if isinstance(a, MoveLinear)):
+            report.add("info",
+                       f"axis {axis!r} has no discovered soft limits; "
+                       f"envelope not checked (run self-check)")
+    for axis, hits in sorted(violations.items()):
+        lo, hi = limits[axis]  # type: ignore[misc]
+        line_no, target = hits[0]
+        report.add("error",
+                   f"{len(hits)} move target(s) outside axis {axis!r} soft "
+                   f"limits [{lo:.1f}, {hi:.1f}] mm — first at line {line_no} "
+                   f"({axis}={target:.3f}); adjust workspace offsets or "
+                   f"re-slice for this machine")
+    if unchecked_relative:
+        report.add("warning",
+                   f"{unchecked_relative} relative move component(s) before "
+                   f"any absolute position; envelope not checked for those")
 
 
 # ------------------------------------------------------------------- events

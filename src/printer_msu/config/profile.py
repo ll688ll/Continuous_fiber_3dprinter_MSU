@@ -41,6 +41,25 @@ class GcodeDialect:
     travel_feed_mm_min: Optional[float] = None  # G0 feed; None -> modal/default
 
 
+Z_MODE_MACHINE = "machine"
+Z_MODE_BED = "bed"
+
+
+@dataclass(frozen=True)
+class Workspace:
+    """Maps slicer coordinates into the machine frame (FR-INT-08).
+
+    ``xy_offset`` shifts absolute X/Y targets (slicer bed origin -> machine).
+    ``z_mode``: "machine" passes Z through raw; "bed" treats G-code Z as
+    height above the print plane on a machine whose zero is at the TOP:
+    ``machine_z = z_bed_offset_mm - gcode_z`` (relative Z deltas negate).
+    """
+
+    xy_offset: Mapping[str, float] = field(default_factory=dict)
+    z_mode: str = Z_MODE_MACHINE
+    z_bed_offset_mm: Optional[float] = None
+
+
 @dataclass(frozen=True)
 class Policies:
     unknown_command: str = POLICY_WARN      # warn | error
@@ -58,6 +77,7 @@ class MachineProfile:
     tools: tuple[ToolConfig, ...]
     gcode: GcodeDialect = field(default_factory=GcodeDialect)
     policies: Policies = field(default_factory=Policies)
+    workspace: Workspace = field(default_factory=Workspace)
 
     def tool(self, index: int) -> Optional[ToolConfig]:
         for t in self.tools:
@@ -80,6 +100,11 @@ class MachineProfile:
                 "default_tool": self.gcode.default_tool,
                 "default_feed_mm_min": self.gcode.default_feed_mm_min,
                 "travel_feed_mm_min": self.gcode.travel_feed_mm_min,
+            },
+            "workspace": {
+                "xy_offset": dict(self.workspace.xy_offset),
+                "z_mode": self.workspace.z_mode,
+                "z_bed_offset_mm": self.workspace.z_bed_offset_mm,
             },
             "policies": {
                 "unknown_command": self.policies.unknown_command,
@@ -154,6 +179,22 @@ def profile_from_dict(data: Mapping[str, Any],
             f"gcode.default_tool={dialect.default_tool} is not a configured tool"
         )
 
+    w = data.get("workspace", {})
+    xy_offset = dict(w.get("xy_offset", {}))
+    for axis in xy_offset:
+        if axis not in ("X", "Y"):
+            raise ProfileError(f"workspace.xy_offset[{axis!r}]: only X/Y allowed")
+        if axis not in axis_map:
+            raise ProfileError(f"workspace.xy_offset[{axis!r}]: axis not mapped")
+    z_mode = _choice("workspace", "z_mode", w.get("z_mode", Z_MODE_MACHINE),
+                     (Z_MODE_MACHINE, Z_MODE_BED))
+    z_bed_offset = (float(w["z_bed_offset_mm"])
+                    if w.get("z_bed_offset_mm") is not None else None)
+    if z_mode == Z_MODE_BED and z_bed_offset is None:
+        raise ProfileError("workspace.z_mode='bed' requires z_bed_offset_mm")
+    workspace = Workspace(xy_offset=xy_offset, z_mode=z_mode,
+                          z_bed_offset_mm=z_bed_offset)
+
     p = data.get("policies", {})
     policies = Policies(
         unknown_command=_choice("policies", "unknown_command",
@@ -175,7 +216,8 @@ def profile_from_dict(data: Mapping[str, Any],
     return MachineProfile(profile_name=name,
                           motion=MotionConfig(config_path=config_path, mode=mode,
                                               axis_map=axis_map),
-                          tools=tuple(tools), gcode=dialect, policies=policies)
+                          tools=tuple(tools), gcode=dialect, policies=policies,
+                          workspace=workspace)
 
 
 def load_profile(path: str | Path) -> MachineProfile:

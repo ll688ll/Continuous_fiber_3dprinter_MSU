@@ -130,7 +130,9 @@ class GcodeInterpreter:
             else:
                 st.feed_mm_min = feed
 
-        if "T" in words:
+        # T is a tool change only standalone; on G/M lines it is a parameter
+        # (e.g. Cura's "M204 P500 R1000 T500" travel acceleration)
+        if "T" in words and "G" not in words and "M" not in words:
             self._tool_select(int(words.pop("T")), line.line_no, result)
 
         if "G" in words:
@@ -237,6 +239,7 @@ class GcodeInterpreter:
             self._skip_tool_command(
                 "E", "extrusion deferred (motion-only v1)", line, result)
 
+        relative = st.distance_mode is DistanceMode.RELATIVE
         targets: dict[str, float] = {}
         for word in ("X", "Y", "Z"):
             if word not in words:
@@ -250,7 +253,8 @@ class GcodeInterpreter:
             if name is None:
                 continue  # unmapped + skip policy: drop this component
             # X/Y route to themselves; Z routes to the tool's logical z-axis
-            targets[word if word != "Z" else name] = float(words[word])
+            targets[word if word != "Z" else name] = self._to_machine(
+                word, float(words[word]), relative)
 
         if not targets:
             return  # feed-only / E-only line: modal state already updated
@@ -259,7 +263,6 @@ class GcodeInterpreter:
         if feed is None:
             return
 
-        relative = st.distance_mode is DistanceMode.RELATIVE
         xy = {a: v for a, v in targets.items() if a in ("X", "Y")}
         z = {a: v for a, v in targets.items() if a not in ("X", "Y")}
         if xy and z:
@@ -279,6 +282,18 @@ class GcodeInterpreter:
             result.actions.append(MoveLinear(line_no=line.line_no, axes=targets,
                                              feed_mm_s=feed, relative=relative,
                                              rapid=code == 0))
+
+    def _to_machine(self, word: str, value: float, relative: bool) -> float:
+        """Slicer frame -> machine frame (FR-INT-08, profile workspace)."""
+        w = self.profile.workspace
+        if word in ("X", "Y"):
+            return value if relative else value + w.xy_offset.get(word, 0.0)
+        # Z: in "bed" mode the machine zero is at the TOP, so height above
+        # the plane inverts: absolute -> offset - z, relative -> -dz
+        if w.z_mode == "bed":
+            assert w.z_bed_offset_mm is not None  # enforced by profile validation
+            return -value if relative else w.z_bed_offset_mm - value
+        return value
 
     def _feed_for(self, code: int, line: GcodeLine,
                   result: InterpretResult) -> Optional[float]:

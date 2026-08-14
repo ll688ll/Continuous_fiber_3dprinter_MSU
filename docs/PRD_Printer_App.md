@@ -202,6 +202,16 @@ Implemented inside `libs/fmc-motion` following its own architecture (engine
 - **FR-INT-07**: unknown/unsupported commands follow the profile policy:
   `warn` (default; skipped, counted) or `error` (preflight fails). `G2/G3`
   are always preflight errors in v1 (D4), with a message naming the line.
+  A `T` word is a tool change **only standalone**; on G/M lines it is a
+  parameter (Cura's `M204 T500` travel accel must not select T500).
+- **FR-INT-08 (workspace transforms — added 2026-08-13 from the first
+  realistic-slicer-file trial)**: the profile's `workspace` section maps
+  slicer coordinates into the machine frame: `xy_offset` shifts absolute
+  X/Y targets (slicer bed origin → machine envelope); `z_mode: "bed"`
+  treats G-code Z as height above the print plane on this top-zero machine
+  (`machine_z = z_bed_offset_mm − gcode_z`; relative Z deltas negate).
+  Default `z_mode: "machine"` passes coordinates through raw. The real
+  machine's `z_bed_offset_mm` awaits Q3 calibration.
 
 ### 4.5 Preflight (FR-PRN-002 subset for motion-only)
 - **FR-PRE-01**: checks — controller connected; e-stop not active; parse
@@ -211,6 +221,12 @@ Implemented inside `libs/fmc-motion` following its own architecture (engine
   or `require_homed: false` acknowledged; feeds within axis maxima.
 - **FR-PRE-02**: preflight returns a structured report (pass/fail + itemized
   findings); `print` refuses to start on failure; `check` prints it.
+- **FR-PRE-03 (envelope check — added 2026-08-13)**: preflight walks the
+  machine-frame move stream tracking per-axis position (absolute targets +
+  accumulated relative deltas) and errors on any target outside the
+  discovered soft limits, per axis with counts and first offending line.
+  Axes without discovered limits produce an info finding; relative moves
+  before any absolute position are counted as unchecked.
 
 ### 4.6 Print job execution
 - **FR-JOB-01**: job state machine: `IDLE → READY → RUNNING ⇄ PAUSED →
@@ -342,13 +358,14 @@ number), `PreflightError`, `JobError`.
   configs/msu_lab.json --axes 0,1 --save`. Also recommended: raise the
   controller clamps for Y (300 vs ~299 mm real span — razor-thin) and Z
   (300 vs 282 mm) to 400 in the vendor tool.
-- **Per-tool Z frame transform (needed before slicer-native prints; part of
-  SRS Q3 calibration):** machine Z zero is at the TOP (home far from the
-  print plane — confirmed intentional 2026-08-13), so machine Z increases
-  *toward* the bed while slicer Z means *height above* the bed. The
-  interpreter needs `machine_z = z_bed_offset − gcode_z` per tool, with
-  `z_bed_offset` calibrated. Today's test files use raw machine
-  coordinates, which is fine for lab paths but not for sliced parts.
+- **Z/XY frame transforms: IMPLEMENTED 2026-08-13 (FR-INT-08), calibration
+  pending.** The workspace section handles `machine_z = z_bed_offset −
+  gcode_z` and XY bed-origin offsets; validated end-to-end against a real
+  Cura file (Ender-5 profile, 11k lines) in sim. Remaining for the real
+  machine: measure the actual `z_bed_offset_mm` (and per-tool refinement)
+  — SRS Q3 calibration. Until then the lab profile stays `z_mode:
+  "machine"`; a deliberately small offset (e.g. 100) allows a safe mid-air
+  dry run of sliced files high above the plane.
 
 - Enable mid-line pause in the library (unlocked by B-L3, §10) — optional;
   the printer's between-segment pause remains the default behavior.

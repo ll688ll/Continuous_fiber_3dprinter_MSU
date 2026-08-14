@@ -36,7 +36,8 @@ def analyze(lines: Iterable[GcodeLine]) -> UsageReport:
         if line.errors:
             report.parse_error_lines.append(line.line_no)
         words = line.words
-        if "T" in words:
+        # standalone Tn only: on G/M lines T is a parameter (e.g. M204 T500)
+        if "T" in words and "G" not in words and "M" not in words:
             report.tools_referenced.add(int(words["T"]))
             report.commands[f"T{int(words['T'])}"] += 1
             tool_seen = True

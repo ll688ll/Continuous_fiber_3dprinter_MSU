@@ -96,6 +96,60 @@ def test_preflight_offline_mode(profile, adapter):
     assert report.passed  # file homes X/Y itself; no live checks needed
 
 
+def test_preflight_envelope_unknown_limits_is_informational(profile, adapter):
+    result = interpret(parse_text(SQUARE), profile)
+    report = run_preflight(profile, adapter, result)
+    assert report.passed
+    assert any("no discovered soft limits" in f.message
+               for f in report.findings if f.level == "info")
+
+
+@pytest.fixture
+def adapter_with_limits(profile):
+    import copy
+
+    import fmc_motion
+    from printer_msu.controllers.motion.fmc_motion_adapter import FmcMotionAdapter
+
+    from printer_testlib import FMC_SIM_CONFIG
+
+    cfg = copy.deepcopy(FMC_SIM_CONFIG)
+    for ax, hi in zip(cfg["axes"], (198.0, 148.0, 98.0)):
+        ax["soft_limits"] = {"min": 2.0, "max": hi}
+    adp = FmcMotionAdapter(fmc_motion.create_controller(cfg, mode="sim"),
+                           axis_map=profile.motion.axis_map)
+    adp.connect()
+    yield adp
+    adp.disconnect()
+
+
+def test_preflight_envelope_flags_out_of_range_targets(profile,
+                                                       adapter_with_limits):
+    text = "G28\nG0 X500 Y10\nG1 X10 Y0.5 F600\nM2\n"
+    result = interpret(parse_text(text), profile)
+    report = run_preflight(profile, adapter_with_limits, result)
+    assert not report.passed
+    messages = [f.message for f in report.findings if f.level == "error"]
+    assert any("axis 'X'" in m and "line 2" in m for m in messages)
+    assert any("axis 'Y'" in m for m in messages)  # Y0.5 below soft min
+
+
+def test_preflight_envelope_tracks_relative_moves(profile, adapter_with_limits):
+    text = "G28\nG0 X190 Y10\nG91\nG1 X20 F600\nM2\n"  # 190+20 > 198
+    result = interpret(parse_text(text), profile)
+    report = run_preflight(profile, adapter_with_limits, result)
+    assert not report.passed
+    assert any("axis 'X'" in f.message and "line 4" in f.message
+               for f in report.findings if f.level == "error")
+
+
+def test_preflight_envelope_passes_in_range(profile, adapter_with_limits):
+    text = "G28\nG0 X50 Y50\nG91\nG1 X5 Y5 F600\nM2\n"
+    result = interpret(parse_text(text), profile)
+    report = run_preflight(profile, adapter_with_limits, result)
+    assert report.passed, [str(f) for f in report.findings]
+
+
 # ------------------------------------------------------------------- runner
 def test_square_prints_to_completion(profile, adapter, tmp_path):
     events = []

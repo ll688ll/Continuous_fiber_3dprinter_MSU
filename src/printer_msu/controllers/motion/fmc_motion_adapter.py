@@ -148,6 +148,20 @@ class FmcMotionAdapter(BaseMotionController):
         return {name: self._ctrl.get_axis_config(idx).max.speed
                 for name, idx in self._name_to_index.items()}
 
+    def soft_limits(self) -> dict[str, tuple[float, float] | None]:
+        """Current per-axis soft limits (None while undiscovered) for
+        preflight envelope checking (FR-PRE-03)."""
+        status = self._ctrl.get_status()
+        out: dict[str, tuple[float, float] | None] = {}
+        for idx, ax in status.axes.items():
+            name = self._index_to_name.get(idx)
+            if name is None:
+                continue
+            known = ax.soft_limit_min is not None and ax.soft_limit_max is not None
+            out[name] = ((ax.soft_limit_min, ax.soft_limit_max) if known
+                         else None)
+        return out
+
     def full_status(self) -> dict:
         """Rich per-axis snapshot for status displays, one controller
         round-trip: {axes: {name: {position, speed, homed, busy, fault}},

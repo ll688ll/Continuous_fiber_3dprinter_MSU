@@ -30,6 +30,12 @@
       "jog": {
         "speed": 20.0,
         "max_step_unhomed": 5.0
+      },
+      "soft_limits": {
+        "min": 2.0,
+        "max": 989.0,
+        "span_mm": 991.0,
+        "discovered_at": "configured: mirrors the real lab machine post-lead-correction"
       }
     },
     {
@@ -55,6 +61,12 @@
       "jog": {
         "speed": 20.0,
         "max_step_unhomed": 5.0
+      },
+      "soft_limits": {
+        "min": 2.0,
+        "max": 297.0,
+        "span_mm": 299.0,
+        "discovered_at": "configured: mirrors the real lab machine post-lead-correction"
       }
     },
     {
@@ -80,6 +92,12 @@
       "jog": {
         "speed": 10.0,
         "max_step_unhomed": 2.0
+      },
+      "soft_limits": {
+        "min": 2.0,
+        "max": 280.0,
+        "span_mm": 282.0,
+        "discovered_at": "configured: mirrors the real lab machine post-lead-correction"
       }
     }
   ],
@@ -87,18 +105,18 @@
     "time_scale": 20.0,
     "axes": {
       "0": {
-        "travel_mm": 283.0,
-        "start_pos_mm": 140.0,
+        "travel_mm": 991.0,
+        "start_pos_mm": 495.5,
         "overtravel_mm": 2.0
       },
       "1": {
-        "travel_mm": 200.0,
-        "start_pos_mm": 100.0,
+        "travel_mm": 299.0,
+        "start_pos_mm": 149.5,
         "overtravel_mm": 2.0
       },
       "2": {
-        "travel_mm": 150.0,
-        "start_pos_mm": 75.0,
+        "travel_mm": 282.0,
+        "start_pos_mm": 141.0,
         "overtravel_mm": 2.0
       }
     }

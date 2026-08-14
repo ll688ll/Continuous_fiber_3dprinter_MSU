@@ -109,6 +109,39 @@ def test_unconfigured_tool_is_fatal():
     assert "not configured" in result.errors[0].message
 
 
+def test_t_on_gm_lines_is_a_parameter_not_a_tool_change():
+    # Cura: "M204 P500 R1000 T500" (travel accel) must NOT select T500
+    result = run("M204 P500.00 R1000.00 T500.00")
+    assert result.ok
+    assert not any(isinstance(a, SelectTool) for a in result.actions)
+    result = run("G1 X5 T3 F600")  # pathological but must not tool-change
+    assert not any(isinstance(a, SelectTool) for a in result.actions)
+
+
+# ---------------------------------------------------------------- workspace
+def test_xy_offset_applied_to_absolute_moves_only():
+    profile = make_profile(workspace={"xy_offset": {"X": 30.0, "Y": 20.0}})
+    result = run("G1 X10 Y10 F600\nG91\nG1 X5 Y5", profile)
+    absolute, rel = moves(result)
+    assert absolute.axes == {"X": 40.0, "Y": 30.0}
+    assert rel.axes == {"X": 5.0, "Y": 5.0}  # deltas unshifted
+
+
+def test_z_bed_mode_inverts_and_offsets():
+    profile = make_profile(workspace={"z_mode": "bed", "z_bed_offset_mm": 250.0})
+    result = run("T0\nG1 Z0.2 F600\nG91\nG1 Z0.4\nG1 Z-0.1", profile)
+    z_moves = moves(result)
+    assert z_moves[0].axes == {"Z_T0": 249.8}   # 250 - 0.2
+    assert z_moves[1].axes == {"Z_T0": -0.4}    # raise 0.4 above bed = machine down-count
+    assert z_moves[2].axes == {"Z_T0": 0.1}
+    assert result.ok
+
+
+def test_z_machine_mode_passes_through():
+    result = run("T0\nG1 Z10 F600")
+    assert moves(result)[0].axes == {"Z_T0": 10.0}
+
+
 def test_tool_without_z_axis_error_policy():
     profile = make_profile(tools=[{"tool_index": 0, "z_axis": None}])
     result = run("T0\nG1 Z5 F600", profile)
