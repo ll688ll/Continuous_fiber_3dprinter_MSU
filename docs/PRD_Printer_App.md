@@ -252,7 +252,10 @@ Implemented inside `libs/fmc-motion` following its own architecture (engine
   executed line, skipped-command tallies, warnings, error (if any).
 - **FR-JOB-07**: homing policy: `print` runs `Home` actions from G28 in the
   file; `--home-first` CLI flag (or profile `home_before_print: true`) homes
-  all mapped axes before streaming when the file lacks G28.
+  all mapped axes before streaming when the file lacks G28. Homing order
+  (SRS D11, added 2026-08-13): **tool Z axes first** — every axis homes to
+  its negative limit, and for Z that is physically up, so Z clears the
+  print plane before X/Y travel — then the remaining axes.
 
 ### 4.7 CLI
 - **FR-CLI-01**: `python -m printer_msu <cmd>` (and console script

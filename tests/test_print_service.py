@@ -237,6 +237,16 @@ def test_hardware_error_ends_in_error_state(profile, adapter, tmp_path):
     assert report["error"] is not None
 
 
+def test_home_all_homes_tool_z_first(profile, adapter):
+    """SRS D11: Z retracts up (negative-limit home) before X/Y move."""
+    result, runner = build("G28\nM2\n", profile, adapter)
+    runner.start()
+    assert runner.join(timeout=30.0)
+    assert runner.state is PrintJobState.COMPLETED
+    home_axes = [h["axis"] for h in adapter._ctrl.history if h["op"] == "home"]
+    assert home_axes == [2, 0, 1]  # Z_T0 first, then X, Y
+
+
 def test_home_first_prepends_homing(profile, adapter):
     text = "G1 X10 Y10 F600\nM2\n"
     result, runner = build(text, profile, adapter, home_first=True)

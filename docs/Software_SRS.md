@@ -468,6 +468,7 @@ Status updates ← Controller plugin ← Polling → UI (signals)
 - **D8**: Temperature sensing uses **thermocouples** (v1).
 - **D9**: Helical/vase mode is **not required** (v1).
 - **D10**: Target status update period and Stop/E-Stop response time are **≤ 500 ms** (initial target; configurable).
+- **D11 (2026-08-13)**: **Every axis homes toward its NEGATIVE limit switch** (vendor homing dir 2). For tool Z axes the negative end is physically **up**, far from the print plane — machine Z zero is at the top and coordinates increase toward the plane (slicer Z maps via `machine_z = z_bed_offset − gcode_z`). "Home all" homes tool Z axes first (retract away from the plane), then X/Y.
 
 ### 7.2 Remaining Open Questions
 - **Q1 (Tool Controller selection)**: What is the Tool Controller hardware/protocol to use (USB/serial/TCP/etc.) and what command API does it expose for:
@@ -546,7 +547,7 @@ This is an example of a persisted Machine Profile. Field names are illustrative 
       "max_feed": 100.0,
       "accel": 500.0,
       "decel": 500.0,
-      "home": { "enabled": true, "dir": 1, "speed": 20.0 }
+      "home": { "enabled": true, "dir": -1, "speed": 20.0 }
     },
     "Z_T1": {
       "enabled": true,
@@ -557,7 +558,7 @@ This is an example of a persisted Machine Profile. Field names are illustrative 
       "max_feed": 100.0,
       "accel": 500.0,
       "decel": 500.0,
-      "home": { "enabled": true, "dir": 1, "speed": 20.0 }
+      "home": { "enabled": true, "dir": -1, "speed": 20.0 }
     },
     "Z_T2": {
       "enabled": true,
@@ -568,7 +569,7 @@ This is an example of a persisted Machine Profile. Field names are illustrative 
       "max_feed": 100.0,
       "accel": 500.0,
       "decel": 500.0,
-      "home": { "enabled": true, "dir": 1, "speed": 20.0 }
+      "home": { "enabled": true, "dir": -1, "speed": 20.0 }
     },
     "Z_T3": {
       "enabled": true,
@@ -579,7 +580,7 @@ This is an example of a persisted Machine Profile. Field names are illustrative 
       "max_feed": 100.0,
       "accel": 500.0,
       "decel": 500.0,
-      "home": { "enabled": true, "dir": 1, "speed": 20.0 }
+      "home": { "enabled": true, "dir": -1, "speed": 20.0 }
     }
   },
   "tools": [

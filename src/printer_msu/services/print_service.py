@@ -378,8 +378,7 @@ class PrintJobRunner:
         if isinstance(action, MoveLinear):
             self._execute_move(action)
         elif isinstance(action, HomeAxes):
-            axes = list(action.axes) if action.axes is not None else None
-            self.adapter.home(axes)
+            self.adapter.home(self._home_order(action.axes))
         elif isinstance(action, SelectTool):
             # v1: routing already resolved at interpret time; log-only until
             # the tool controller lands (PRD M5)
@@ -396,6 +395,15 @@ class PrintJobRunner:
             pass  # loop finishes naturally; kept for logging/reporting
         else:  # pragma: no cover - defensive
             raise JobError(f"unexecutable action {action!r}")
+
+    def _home_order(self, axes) -> list[str]:
+        """Tool Z axes first (SRS D11: they home NEGATIVE = physically UP,
+        clearing the print plane before X/Y travel), then the others."""
+        selected = list(axes) if axes is not None \
+            else list(self.profile.motion.axis_map)
+        z_axes = {t.z_axis for t in self.profile.tools if t.z_axis}
+        return ([a for a in selected if a in z_axes]
+                + [a for a in selected if a not in z_axes])
 
     def _execute_move(self, move: MoveLinear) -> None:
         positions = self.adapter.get_status().positions
