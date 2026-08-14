@@ -130,7 +130,7 @@
       "move_timeout_s": null
     }
   ],
-  "poll_interval_s": 0.25,
+  "poll_interval_s": 0.15,
   "move_start_grace_s": null,
   "sim": {
     "time_scale": 10.0,

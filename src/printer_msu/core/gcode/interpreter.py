@@ -297,11 +297,14 @@ class GcodeInterpreter:
 
     def _feed_for(self, code: int, line: GcodeLine,
                   result: InterpretResult) -> Optional[float]:
+        """Modal F wins for G0 and G1 (RepRap dialect — slicers put the travel
+        speed on the G0 line itself); the profile travel/default feeds are
+        fallbacks for files that move before any F word."""
         st = self.state
-        if code == 0 and self.profile.gcode.travel_feed_mm_min is not None:
-            feed_mm_min = self.profile.gcode.travel_feed_mm_min
-        elif st.feed_mm_min is not None:
+        if st.feed_mm_min is not None:
             feed_mm_min = st.feed_mm_min
+        elif code == 0 and self.profile.gcode.travel_feed_mm_min is not None:
+            feed_mm_min = self.profile.gcode.travel_feed_mm_min
         else:
             feed_mm_min = self.profile.gcode.default_feed_mm_min
         return feed_mm_min * MM_PER_MIN_TO_MM_PER_S

@@ -36,11 +36,19 @@ def test_absolute_xy_move_with_feed_conversion():
     assert result.ok
 
 
-def test_g0_uses_travel_feed():
+def test_g0_uses_travel_feed_before_any_f():
     result = run("G0 X5")
     (move,) = moves(result)
     assert move.rapid
     assert move.feed_mm_s == pytest.approx(3000.0 / 60.0)
+
+
+def test_g0_prefers_modal_feed():
+    # slicers put the travel speed on the G0 line itself (RepRap dialect)
+    result = run("G0 F7500 X5\nG0 X10")
+    first, second = moves(result)
+    assert first.feed_mm_s == pytest.approx(125.0)
+    assert second.feed_mm_s == pytest.approx(125.0)  # modal, wins over profile
 
 
 def test_default_feed_when_no_f_seen():

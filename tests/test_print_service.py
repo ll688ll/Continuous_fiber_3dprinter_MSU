@@ -267,6 +267,11 @@ def test_relative_moves_resolve_against_live_position(profile, adapter):
     assert positions["Y"] == pytest.approx(25.0, abs=0.05)
 
 
+class _FakeDoneHandle:
+    def wait(self, timeout=None):
+        return True  # "completed" without motion
+
+
 class _SilentlyIgnoringAdapter:
     """Reproduces the 2026-08-12 lab failure: the controller accepts move
     commands (rc=0) but never moves; everything else is passed through."""
@@ -279,6 +284,9 @@ class _SilentlyIgnoringAdapter:
 
     def move_absolute(self, axes_positions, feed, accel=None, decel=None):
         pass  # accepted, "completed", no motion
+
+    def move_async(self, axes_positions, feed, accel=None, decel=None):
+        return _FakeDoneHandle()  # accepted, "completed", no motion
 
 
 def test_silent_no_motion_is_detected_as_error(profile, adapter, tmp_path):
@@ -299,3 +307,78 @@ def test_xy_moves_use_line_interpolation(profile, adapter):
     assert runner.join(timeout=30.0)
     ctrl = adapter._ctrl
     assert any(h["op"] == "line" for h in ctrl.history)
+
+
+# ---------------------------------------------------------------- streaming
+def test_streamed_xy_moves_complete_in_order(profile, adapter):
+    """Consecutive XY segments are dispatched ahead (stream_window) and the
+    per-axis queues execute them in order to the correct final position."""
+    text = ("G28\nG0 X50 Y50\n"
+            + "".join(f"G1 X{50 + i} Y{50 + i} F1500\n" for i in range(1, 9))
+            + "M2\n")
+    result, runner = build(text, profile, adapter)
+    runner.start()
+    assert runner.join(timeout=30.0)
+    assert runner.state is PrintJobState.COMPLETED
+    positions = adapter.get_status().positions
+    assert positions["X"] == pytest.approx(58.0, abs=0.05)
+    assert positions["Y"] == pytest.approx(58.0, abs=0.05)
+    line_ops = [h for h in adapter._ctrl.history if h["op"] == "line"]
+    assert len(line_ops) == 9  # travel + 8 segments, none skipped
+
+
+def test_streaming_barrier_on_axis_set_change(profile, adapter):
+    """A Z move must not run concurrently with queued XY lines: the runner
+    drains before switching axis sets (per-axis queues alone cannot order
+    them). The Z dispatch must happen only after the XY line finished."""
+    text = "G28\nG0 X50 Y50\nG1 X150 Y140 F600\nG1 Z90 F600\nM2\n"
+    result, runner = build(text, profile, adapter)
+    runner.start()
+    assert runner.join(timeout=60.0)
+    assert runner.state is PrintJobState.COMPLETED, runner.error_message
+    history = adapter._ctrl.history
+    xy_line = [h for h in history if h["op"] == "line"
+               and h["targets"] == {0: 150.0, 1: 140.0}][0]
+    z_move = [h for h in history if h["op"] == "move" and h["axis"] == 2][-1]
+    # XY line: ~134 mm path at 10 mm/s composite ≈ 13 sim-s; the Z dispatch
+    # time must lie beyond the line's completion, not overlap its start
+    assert z_move["t"] >= xy_line["t"] + 10.0
+    assert adapter.get_status().positions["Z_T0"] == pytest.approx(90.0,
+                                                                   abs=0.05)
+
+
+def test_streamed_error_attributes_failing_line(profile, adapter, tmp_path):
+    # the SECOND queued move physically trips the limit (travel is 200 mm)
+    text = "G28\nG0 X50 Y50\nG1 X190 Y50 F1500\nG1 X500 Y50 F1500\nM2\n"
+    result, runner = build(text, profile, adapter, tmp_path)
+    runner.start()
+    assert runner.join(timeout=30.0)
+    assert runner.state is PrintJobState.ERROR
+    assert "line 4" in runner.error_message
+
+
+def test_stream_window_one_behaves_like_blocking(adapter):
+    profile = make_profile(policies={"stream_window": 1})
+    text = "G28\nG0 X40 Y40\nG1 X60 Y60 F1500\nM2\n"
+    result, runner = build(text, profile, adapter)
+    runner.start()
+    assert runner.join(timeout=30.0)
+    assert runner.state is PrintJobState.COMPLETED
+    assert adapter.get_status().positions["X"] == pytest.approx(60.0, abs=0.05)
+
+
+def test_pause_drains_streamed_moves(profile, adapter):
+    text = ("G28\nG0 X10 Y10\n"
+            + "".join(f"G1 X{10 + 20 * i} Y10 F1500\n" for i in range(1, 8))
+            + "M2\n")
+    result, runner = build(text, profile, adapter)
+    runner.start()
+    assert wait_for_state(runner, PrintJobState.RUNNING)
+    runner.pause()
+    assert wait_for_state(runner, PrintJobState.PAUSED, timeout=30.0)
+    # paused between actions with nothing in flight: axes are idle
+    status = adapter.get_status()
+    assert status.run_state == "idle"
+    runner.resume()
+    assert runner.join(timeout=30.0)
+    assert runner.state is PrintJobState.COMPLETED

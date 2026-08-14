@@ -190,8 +190,10 @@ Implemented inside `libs/fmc-motion` following its own architecture (engine
   or errors, per policy (FR-GC-023).
 - **FR-INT-04 (motion assembly)**: `G0/G1` produce one `MoveLinear` per
   segment. XY together → one coordinated 2-axis move; a move also touching Z
-  is split Z-first (+warning, §2.2). `G0` uses the profile's travel feed (or
-  axis maxima), `G1` uses modal `F`. Zero-length segments are dropped.
+  is split Z-first (+warning, §2.2). Feeds: modal `F` wins for both `G0`
+  and `G1` (RepRap dialect — slicers put the travel speed on the `G0` line
+  itself); the profile's travel/default feeds apply only before any `F` has
+  been seen. Zero-length segments are dropped.
 - **FR-INT-05 (motion-only policy, D2)**: `M104/M109/M105/M106/M107` and `E`
   words produce `SkippedCommand` warnings (aggregated by code in reports); in
   `strict` policy they are preflight errors. `G92 E0` is accepted silently
@@ -231,10 +233,18 @@ Implemented inside `libs/fmc-motion` following its own architecture (engine
 ### 4.6 Print job execution
 - **FR-JOB-01**: job state machine: `IDLE → READY → RUNNING ⇄ PAUSED →
   COMPLETED | STOPPED | ERROR` (adds `COMPLETED` to the skeleton's states).
-- **FR-JOB-02**: streaming runs in a dedicated worker thread; actions execute
-  sequentially and blocking (one segment = one `move_line`/`move_absolute`
-  wait). The UI thread rule (SRS 2.5) is satisfied by construction — the CLI
-  or future UI only ever observes events.
+- **FR-JOB-02 (streamed, revised 2026-08-13)**: streaming runs in a
+  dedicated worker thread. Moves are dispatched ahead into the library's
+  per-axis queues, up to `policies.stream_window` in flight (default 4;
+  1 = blocking per segment), so the real-mode motion-start grace overlaps
+  actual motion instead of adding ~1.9 s of dead time per segment. Ordering
+  guarantees: moves touching a different axis set, and every non-move
+  action, drain the stream first (per-axis queues alone cannot order
+  cross-axis work). Relative targets resolve against predicted positions
+  (the engine's 0.5 mm per-move verification bounds any drift); progress
+  events may lead physical motion by ≤ the window. The UI thread rule
+  (SRS 2.5) is satisfied by construction — the CLI or future UI only ever
+  observes events.
 - **FR-JOB-03**: `pause()` takes effect **between actions** (current segment
   finishes, then the worker holds; hardware-safe per FR-LINE-04); `resume()`
   continues; `stop()` aborts the current motion via controller `stop()` and
@@ -346,6 +356,15 @@ number), `PreflightError`, `JobError`.
    `ACT_MOVE_LINEAR_SYNC`, arc segmentation, resume-from-line, profiles UI.
 
 ## 9. Open items
+- **Continuous motion via the vendor's Auto Run mode (candidate M6 /
+  library v1.3):** the DLL exposes `Download_File(type=2)` (`.elo` script),
+  `Start/Pause/Resume/Stop_Auto_Run`, and `Get_Machine_Atuo_Status`
+  (current file + line — controller-side resume even after power loss).
+  Scripts execute inside the controller, eliminating the per-segment TCP
+  round-trips entirely and possibly providing segment-to-segment blending.
+  Needs the 自动化编程 (automation programming) manual V1.2 for the script
+  language, then a generator from the action stream + bench validation.
+  Until then, streamed dispatch (FR-JOB-02) is the throughput path.
 - SRS Q1: tool controller hardware selection (blocks M5) — options drafted
   in `docs/Tool_Controller_Options_Q1.md`; **decision D-Q1a (2026-08-13):
   the FMC is motion-only — channels reserved for X, Y, Z_T0/Z_T1/Z_T2 —

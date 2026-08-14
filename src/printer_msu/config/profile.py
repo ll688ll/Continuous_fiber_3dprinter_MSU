@@ -68,6 +68,10 @@ class Policies:
     feed_over_max: str = POLICY_CLAMP       # clamp | error
     require_homed: bool = True
     home_before_print: bool = False
+    #: moves dispatched ahead into the controller queues (1 = fully blocking
+    #: per segment). Queuing hides the real-mode motion-start grace behind
+    #: actual motion, which is most of the per-segment overhead.
+    stream_window: int = 4
 
 
 @dataclass(frozen=True)
@@ -113,6 +117,7 @@ class MachineProfile:
                 "feed_over_max": self.policies.feed_over_max,
                 "require_homed": self.policies.require_homed,
                 "home_before_print": self.policies.home_before_print,
+                "stream_window": self.policies.stream_window,
             },
         }
 
@@ -211,7 +216,11 @@ def profile_from_dict(data: Mapping[str, Any],
                               (POLICY_CLAMP, POLICY_ERROR)),
         require_homed=bool(p.get("require_homed", True)),
         home_before_print=bool(p.get("home_before_print", False)),
+        stream_window=int(p.get("stream_window", 4)),
     )
+    if not 1 <= policies.stream_window <= 32:
+        raise ProfileError(
+            f"policies.stream_window={policies.stream_window}; expected 1..32")
 
     return MachineProfile(profile_name=name,
                           motion=MotionConfig(config_path=config_path, mode=mode,

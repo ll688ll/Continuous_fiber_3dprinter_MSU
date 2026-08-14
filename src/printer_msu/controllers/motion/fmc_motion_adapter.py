@@ -119,6 +119,30 @@ class FmcMotionAdapter(BaseMotionController):
         for handle in handles:
             handle.wait()
 
+    def move_async(self, axes_positions: Mapping[str, float], feed: float,
+                   accel: float | None = None, decel: float | None = None):
+        """Dispatch an absolute move WITHOUT waiting; returns the library
+        MoveHandle (streamed printing). The library's per-axis queues order
+        successive calls; ``handle.wait()`` raises the move's error.
+
+        1 axis -> point-to-point; 2 axes -> coordinated line. The printer
+        core never produces 3+-axis moves (the interpreter splits Z from XY).
+        """
+        kwargs = {}
+        if accel is not None:
+            kwargs["accel"] = accel
+        if decel is not None:
+            kwargs["decel"] = decel
+        if len(axes_positions) == 2 and self._ctrl.capabilities().get(
+                "interpolation"):
+            targets = {self._index_of(n): v for n, v in axes_positions.items()}
+            return self._ctrl.move_line(targets, speed=feed, wait=False, **kwargs)
+        if len(axes_positions) == 1:
+            (name, value), = axes_positions.items()
+            return self._ctrl.move_absolute(self._index_of(name), value,
+                                            speed=feed, wait=False, **kwargs)
+        raise ValueError("move_async supports 1- or 2-axis absolute moves")
+
     def stop(self, mode: StopMode = StopMode.CONTROLLED) -> None:
         self._ctrl.stop(mode="immediate" if mode is StopMode.IMMEDIATE
                         else "controlled")

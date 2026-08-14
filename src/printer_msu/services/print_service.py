@@ -16,6 +16,7 @@ import json
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -251,6 +252,15 @@ class PrintJobRunner:
         self.error_message: Optional[str] = None
         self._started_at: Optional[str] = None
         self._finished_at: Optional[str] = None
+        # streamed execution (FR-JOB-02): moves are dispatched ahead into the
+        # library's per-axis queues so the controller's motion-start grace
+        # overlaps real motion instead of adding dead time per segment.
+        # Progress events may lead physical motion by <= stream_window moves.
+        self.stream_window = max(1, profile.policies.stream_window)
+        self._inflight: deque[tuple[object, int, dict]] = deque()
+        self._inflight_axes: Optional[frozenset] = None
+        self._predicted: Optional[dict[str, float]] = None
+        self._last_targets: Optional[dict[str, float]] = None
 
     # ----------------------------------------------------------------- state
     @property
@@ -330,6 +340,7 @@ class PrintJobRunner:
                     self._set_state(PrintJobState.STOPPED)
                     return
                 if not self._unpaused.is_set():
+                    self._drain()  # finish in-flight moves before pausing
                     self._hold_paused()
                     if self._stop_requested:
                         end_reason = "estop" if self._estop_requested else "stopped"
@@ -343,6 +354,9 @@ class PrintJobRunner:
                     line_no=action.line_no,
                     percent=100.0 * index / total if total else 100.0))
                 self._execute(action)
+            self._drain()
+            if self._last_targets:
+                self._verify_position(self._last_targets)
             self._set_state(PrintJobState.COMPLETED)
             self._emit(JobEvent(kind="progress", job_id=self.job_id,
                                 action_index=len(self._actions),
@@ -377,8 +391,11 @@ class PrintJobRunner:
                      action.describe())
         if isinstance(action, MoveLinear):
             self._execute_move(action)
-        elif isinstance(action, HomeAxes):
+            return
+        self._drain()  # non-move actions are barriers in the stream
+        if isinstance(action, HomeAxes):
             self.adapter.home(self._home_order(action.axes))
+            self._predicted = None  # homing moved the axes; re-read when needed
         elif isinstance(action, SelectTool):
             # v1: routing already resolved at interpret time; log-only until
             # the tool controller lands (PRD M5)
@@ -406,7 +423,7 @@ class PrintJobRunner:
                 + [a for a in selected if a not in z_axes])
 
     def _execute_move(self, move: MoveLinear) -> None:
-        positions = self.adapter.get_status().positions
+        positions = self._current_positions()
         if move.relative:
             targets = {a: positions[a] + d for a, d in move.axes.items()}
         else:
@@ -414,13 +431,49 @@ class PrintJobRunner:
         if all(abs(targets[a] - positions.get(a, 0.0)) < _POSITION_EPSILON_MM
                for a in targets):
             return  # zero-length segment: nothing to do
+
+        # a move touching a different axis set must not run concurrently with
+        # queued predecessors (per-axis queues would not order them): drain
+        axes_set = frozenset(targets)
+        if self._inflight and axes_set != self._inflight_axes:
+            self._drain()
+
         feed = self._clamped_feed(move)
-        logger.info("[%s] line %s: move %s @ %.1f mm/s", self.job_id,
-                    move.line_no,
-                    " ".join(f"{a}->{v:.3f}" for a, v in sorted(targets.items())),
-                    feed)
-        self.adapter.move_absolute(targets, feed)
-        self._verify_position(targets)
+        logger.debug("[%s] line %s: move %s @ %.1f mm/s", self.job_id,
+                     move.line_no,
+                     " ".join(f"{a}->{v:.3f}" for a, v in sorted(targets.items())),
+                     feed)
+        handle = self.adapter.move_async(targets, feed)
+        self._inflight.append((handle, move.line_no, targets))
+        self._inflight_axes = axes_set
+        if self._predicted is None:
+            self._predicted = dict(positions)
+        self._predicted.update(targets)
+        while len(self._inflight) >= self.stream_window:
+            self._wait_oldest()
+
+    def _current_positions(self) -> dict[str, float]:
+        """Predicted end position of everything dispatched so far; falls back
+        to a live read when nothing is known (start of job, after homing).
+        The engine verifies every completed move to 0.5 mm, so predictions
+        cannot drift silently."""
+        if self._predicted is not None:
+            return self._predicted
+        return dict(self.adapter.get_status().positions)
+
+    def _wait_oldest(self) -> None:
+        handle, line_no, targets = self._inflight.popleft()
+        newest = self.last_line
+        if line_no:
+            self.last_line = line_no  # error attribution for queued moves
+        handle.wait()  # raises the move's MotionError on failure/cancel
+        self.last_line = max(newest, line_no)  # success: restore progress
+        self._last_targets = targets
+
+    def _drain(self) -> None:
+        while self._inflight:
+            self._wait_oldest()
+        self._inflight_axes = None
 
     def _verify_position(self, targets: dict[str, float]) -> None:
         """A completed move MUST be at its target (FR-JOB-04 hardening)."""
