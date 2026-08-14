@@ -4,3 +4,10 @@ __pycache__/
 .DS_Store
 .pytest_cache/
 logs/
+
+# generated tool outputs (archive curated copies under docs/test-records/ instead)
+/hw_acceptance_report.json
+/hw_bench_results.json
+/line_bench_results.json
+/lib_line_check_results.json
+/device_para.json
