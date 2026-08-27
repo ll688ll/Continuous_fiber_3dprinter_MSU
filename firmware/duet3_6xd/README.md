@@ -201,6 +201,46 @@ Doubling top speed took the raster only 15.9 → 12.3 s (1.29×, not 2×), becau
 `sqrt(a·L)` — 141 mm/s on a 20 mm segment at accel 1000. **This bench is an
 acceleration test; its feed number is largely cosmetic.**
 
+### The reference Cura file — the number that actually matters
+
+`CE5_pill_box_insert.gcode`, 9,942 motion commands, median segment 1.58 mm,
+travels F12000 (200 mm/s), perimeters F2400 (40 mm/s), the file's own
+`M204 P500 T500` honoured. Run as a mid-air dry run from the board's SD card.
+
+| | time | |
+|---|---|---|
+| FMC, modelled after all software fixes | 4778 s | 1:19:38 |
+| FMC, modelled *with* look-ahead blending | 2148 s | 0:35:48 |
+| **Duet 3 6XD, measured** | **2148 s** | **0:35:48** |
+| Cura's own estimate | 2163 s | 0:36:03 |
+
+9923/9923 moves completed, zero hiccups, zero underruns, zero LaErrors,
+`max steps late 1` (one step, across roughly ten million — noted for honesty,
+not a concern). VIN steady, no driver faults.
+
+**The measurement landed exactly on the project's own August prediction.** The
+speed-test work modelled this file at 0:35:48 for a blended controller, and the
+Duet delivered 0:35:48. That is a validation of the model, not a coincidence
+worth reading anything more into.
+
+**2.22× against the optimised FMC** — not the 6.9× that `speed_bench` implied.
+That gap is precisely what the earlier analysis predicted between a collinear
+raster and a real vertex-dense toolpath, and it is why `speed_bench` must not
+be quoted as the headline. Note the FMC figures are *modelled*, not measured,
+so this is a measured-vs-modelled comparison and should be cited as such.
+
+Two preprocessing traps found doing this, which apply to any slicer output:
+
+- **`M203` flavour mismatch.** Cura emits Marlin-flavour, where `M203` is
+  mm/s; RRF reads `M203` as mm/min. The file's `M203 X500 Y500 Z10` would have
+  silently capped X/Y at 8.3 mm/s and Z at 0.17 mm/s — the machine would crawl
+  and look like a hardware fault. Strip or convert it.
+- **Z must be reflected, not merely offset.** In absolute mode
+  `machine_z = z_bed_offset − gcode_z`, but Cura's end script does its
+  retract-and-raise under `G91`, where the correct transform is *negation*.
+  Getting that wrong drives the tool into the plane on the one move whose
+  entire purpose is to escape it.
+
 ## Safety — current state
 
 This is the honest picture, not a reassuring one.
@@ -229,7 +269,11 @@ This is the honest picture, not a reassuring one.
 - Caliper check of 142.857 steps/mm on the new pulse path. Validated once on
   the FMC (commanded 100 mm, measured 99.995) and the step counts land exactly,
   but it has not been confirmed independently here.
-- Run the reference Cura file end to end — that is the number that actually
-  predicts print time.
 - `printer_msu` integration: the app becomes a thin front-end over the Duet
-  HTTP API (`/rr_gcode`, `/rr_reply`).
+  HTTP API (`/rr_gcode`, `/rr_reply`). The G-code preprocessing above
+  (`M203` flavour, Z reflection, heater/extruder stripping, XY offset) is the
+  natural home for the parser/interpreter code that already exists — it is
+  what survives of the FMC pipeline.
+- Ethernet: still DHCP with no cable. Worth connecting for Duet Web Control and
+  for HTTP uploads, which would beat the ~166 s serial upload for a 10k-line
+  file.
