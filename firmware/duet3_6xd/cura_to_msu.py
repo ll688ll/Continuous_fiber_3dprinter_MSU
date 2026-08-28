@@ -7,8 +7,9 @@ Handles the two traps that bite silently:
    RepRapFirmware reads M203 as mm/**min**. A file's "M203 X500 Y500 Z10"
    therefore caps X/Y at 8.3 mm/s and Z at 0.17 mm/s -- the machine crawls and
    looks like a hardware fault. M203 is stripped (as are M201/M205, which are
-   machine ceilings we have already validated). M204 is KEPT, because that is
-   the file's actual print/travel acceleration request.
+   machine ceilings we have already validated). M204 is KEPT by default,
+   because that is the file's actual print/travel acceleration request -- pass
+   --drop-m204 to strip it too and let the machine's own M201 govern.
 
 2. **Z is reflected, not offset.** Machine zero is at the TOP (SRS D11), so in
    absolute mode machine_z = z_bed_offset - gcode_z. But Cura's end script does
@@ -41,7 +42,8 @@ def convert(src: str, xoff: float, yoff: float, zbed: float) -> tuple[list[str],
     out = [
         "; converted by cura_to_msu.py",
         "; XY +%g/+%g ; machine_z = %g - gcode_z (machine zero at the TOP, SRS D11)" % (xoff, yoff, zbed),
-        "; heaters/fans/extruder stripped; M201/M203/M205 stripped; M204 kept",
+        "; heaters/fans/extruder stripped; M201/M203/M205 stripped; M204 %s"
+        % ("stripped (machine M201 governs)" if "M204" in DROP else "kept"),
         "G21",
         "G90",
     ]
@@ -121,8 +123,13 @@ def main() -> int:
     ap.add_argument("--yoff", type=float, default=30.0)
     ap.add_argument("--zbed", type=float, default=100.0,
                     help="machine Z that corresponds to slicer Z=0 (the bed)")
+    ap.add_argument("--drop-m204", action="store_true",
+                    help="also strip M204, so the machine's own M201 governs "
+                         "acceleration instead of the slicer's request")
     args = ap.parse_args()
 
+    if args.drop_m204:
+        DROP.add("M204")
     lines, stats = convert(args.src, args.xoff, args.yoff, args.zbed)
     print("moves %(moves)d  other kept %(kept)d  dropped %(dropped)d" % stats)
 

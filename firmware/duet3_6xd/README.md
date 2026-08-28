@@ -263,6 +263,40 @@ raster and a real vertex-dense toolpath, and it is why `speed_bench` must not
 be quoted as the headline. Note the FMC figures are *modelled*, not measured,
 so this is a measured-vs-modelled comparison and should be cited as such.
 
+### Which lever actually speeds this file up
+
+Same file, same machine, one variable at a time:
+
+| acceleration | speed factor | time | vs baseline |
+|---|---|---|---|
+| 500 (file's `M204`) | 100% | 2148 s | — |
+| 500 | **150%** (`M220 S150`) | **1583 s** | **−26.3%** |
+| **1000** | 150% | 1535 s | −28.5% (only −3.0% vs the row above) |
+
+**Feedrate is the strong lever; acceleration is nearly worthless here.** Doubling
+acceleration bought 3%. That replicates the project's own FMC-era measurement,
+where raising the file's acceleration alone bought 2% and the conclusion was
+"accel is NOT the top lever" — so it is a property of this toolpath, not of the
+old controller.
+
+Two predictions were made before these runs and **both were wrong, in opposite
+directions**: the feedrate override was predicted to gain "under 10%" and gained
+26%; acceleration was predicted to be the bigger lever and gained 3%. The
+reasoning error in the first was using the **median** segment (1.58 mm) to argue
+that moves were acceleration-limited, when total time is driven by total
+distance and the **mean** segment is 7.6 mm — long enough to reach its commanded
+feed, hence feed-limited. Reason about time with the mean, not the median, and
+prefer measuring to arguing.
+
+The untested lever is **jerk** (`M566`, currently 8 mm/s / 480 mm/min). On a
+vertex-dense path the corner speed limit plausibly dominates what is left. It is
+also a mechanical-stress parameter, so raise it deliberately rather than
+casually.
+
+Acceleration was raised for these runs by regenerating the file with
+`--drop-m204`, so the machine's own `M201` governs instead of the slicer's
+request; `M204` is kept by default.
+
 Two preprocessing traps found doing this, which apply to any slicer output:
 
 - **`M203` flavour mismatch.** Cura emits Marlin-flavour, where `M203` is
