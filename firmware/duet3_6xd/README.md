@@ -309,6 +309,49 @@ Two preprocessing traps found doing this, which apply to any slicer output:
   Getting that wrong drives the tool into the plane on the one move whose
   entire purpose is to escape it.
 
+## Two operating modes
+
+Both are supported and both were measured on the same file at the same
+settings. **A CAN-FD toolboard synchronises identically in either**, because
+the sync happens inside RRF's motion planner — so the mode choice and the tool
+architecture are independent decisions.
+
+| | mechanism | time | vs SD |
+|---|---|---|---|
+| **B — preload** | `rr_upload` then `M32` | 2148 s | — |
+| **A — stream** | `stream_gcode.py`, batched `rr_gcode` | 2173 s | **+1.2%** |
+
+Mode B is the default: upload 228 KB in 0.08 s, run it, monitor `rr_model`.
+Nothing in the host path can disturb the print.
+
+Mode A costs 1.2% and buys the host a seat in the loop — injecting tool
+commands, reacting to sensors, generating the path on the fly. During the run
+`buff` sat near zero with **zero stalls**, meaning the *board* was the limiter
+and the host was always ready. That is the regime you want; the feed rate of
+4–5 lines/s is the machine's consumption rate, not a transport ceiling
+(transport measured ~207 lines/s, roughly 45× headroom).
+
+### What streaming does not buy you
+
+RRF queues up to **60 moves** ahead. When the host sends move N the machine is
+executing move N−60. Host-side timing therefore cannot synchronise anything to
+better than 60 moves, in either mode. **The look-ahead that makes the board fast
+is exactly what makes host-timed sync impossible** — you cannot have both. Tool
+sync belongs in the planner: an E axis on a spare driver, or a CAN-FD toolboard.
+
+### The hazard to design against
+
+`rr_gcode` does **not** error when you exceed `buff` — it silently drops the
+overflow, and you get a part with a missing segment and no indication anywhere.
+So batches must be sized by **bytes against the live `buff`**, never by line
+count: real G-code lines here average 23.0 bytes (longest 33), so about 10 fit
+in the 250-byte buffer, and a line count that works for one file will overflow
+on another whose coordinates carry more digits.
+
+A throughput probe using short commands will mislead you here. Measured with
+4-byte commands, 20 lines/request looked like 343 lines/s; with real 23-byte
+lines only ~10 fit per request and the honest figure is ~163–207 lines/s.
+
 ## Safety — current state
 
 This is the honest picture, not a reassuring one.
