@@ -26,9 +26,16 @@ G90                              ; absolute moves
 M550 P"msu-6xd"                  ; machine name
 
 ; --- Network --------------------------------------------------------------
-; The stock config.g had a static 192.168.1.14, but the lab subnet is
-; 192.168.0.x (the FMC lived on 192.168.0.30). DHCP until we pick an address.
-M552 P0.0.0.0 S1
+; STATIC, and it has to be: the lab segment is isolated with NO DHCP SERVER.
+; The workstation's 192.168.0.38 is manually configured (PrefixOrigin Manual,
+; DHCP disabled on the interface, no default gateway, empty ARP table), left
+; over from the FMC at 192.168.0.30. A DHCP request here waits forever and the
+; board sits at 0.0.0.0.
+;   .30 = retired FMC, .38 = workstation, .40 = this board.
+; No gateway is needed on an isolated segment.
+M553 P255.255.255.0
+M554 P0.0.0.0
+M552 P192.168.0.40 S1
 
 ; NOTE: M575 is deliberately ABSENT. It would claim serial0.rx, which is the
 ; same physical pin as io0.in - see the endstop section below.

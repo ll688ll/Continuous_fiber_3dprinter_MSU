@@ -127,8 +127,42 @@ Files can be written to the card over the same link with
 "Access to the port is denied" while Windows shows the device Present/OK means
 close Cura.
 
-Ethernet is set to DHCP. It was a static 192.168.1.14 out of the box, which is
-the wrong subnet — the lab ran 192.168.0.x for the FMC.
+### Ethernet — 192.168.0.40, and it must be static
+
+The lab segment is **isolated with no DHCP server**. The workstation's
+192.168.0.38 is manually configured (`PrefixOrigin: Manual`, DHCP disabled on
+the interface, no default gateway, empty ARP table), left over from the FMC at
+192.168.0.30. A DHCP request here waits forever and the board sits at 0.0.0.0
+reporting `establishingLink` — which looks exactly like a cable fault.
+
+Addresses: `.30` retired FMC, `.38` workstation, `.40` this board
+(MAC `be:4d:33:55:52:4b`). DWC is at <http://192.168.0.40>.
+
+Ethernet is the better path once it is up — HTTP upload of `config.g` took
+**0.08 s against 166 s over serial**, and the whole reset-and-verify cycle can
+be driven without USB at all:
+
+```bash
+curl "http://192.168.0.40/rr_connect?password="
+```
+
+```bash
+curl -X POST --data-binary @config.g "http://192.168.0.40/rr_upload?name=/sys/config.g"
+```
+
+```bash
+curl "http://192.168.0.40/rr_gcode?gcode=M552" && curl "http://192.168.0.40/rr_reply"
+```
+
+`rr_filelist?dir=/sys` lists the card, `rr_model?key=boards` returns firmware,
+VIN and per-driver status. This is the same API `printer_msu` will use.
+
+**Caution: USB has proved intermittent on this workstation.** Both the Duet and
+the USB Ethernet dongle that carries 192.168.0.38 have dropped and re-enumerated
+several times — the dongle vanishing from the adapter list entirely, which a
+built-in NIC never does. Suspect the hub rather than either device. When the
+board is unreachable, check whether the *dongle* is present before blaming the
+Duet.
 
 ## Gotchas worth keeping
 
@@ -274,6 +308,5 @@ This is the honest picture, not a reassuring one.
   (`M203` flavour, Z reflection, heater/extruder stripping, XY offset) is the
   natural home for the parser/interpreter code that already exists — it is
   what survives of the FMC pipeline.
-- Ethernet: still DHCP with no cable. Worth connecting for Duet Web Control and
-  for HTTP uploads, which would beat the ~166 s serial upload for a 10k-line
-  file.
+- Track down the intermittent USB. Ethernet is a workaround, not a fix, and a
+  drop mid-upload is how the card and the repo get out of sync.
