@@ -1,29 +1,53 @@
 ## Continuous fiber 3d printer
 
-**Status (2026-08-13):** the motion platform is done and hardware-proven —
-X/Y/Z_T0 commissioned at true scale (987 × 290 × 282 mm), coordinated XY
-line interpolation, homing with switch clearance, soft limits, e-stop
-(~60 ms), position-verified prints. A full Cura-sliced file runs end-to-end
-(mid-air dry run; tool commands skipped). CLI + PySide6 print console
-shipped. Next: **M6** continuous motion via the controller's Auto Run
-script mode (PRD §8), and **M5** tool controller once hardware is chosen
-(`docs/Tool_Controller_Options_Q1.md`).
+**Status (2026-08-25): the motion controller has been replaced.** The
+FMC006GE31 is retired. X/Y/Z_T0 now run on a **Duet 3 Mainboard 6XD** driving
+the same Delta ASD-B3 servo drives over the same wiring — no drive-side changes
+were needed. All three axes home and move, the configuration lives on the
+board's SD card and survives a power cycle, and the reference Cura file runs
+end to end as a mid-air dry run in **2148 s (35m 48s)** against the FMC's
+modelled 4778 s. Both required operating modes are proven: preload-and-run from
+the card, and line-by-line streaming from a master machine (a 1.2 % penalty).
+Wiring, drive parameters, measurements and the traps found along the way:
+[`firmware/duet3_6xd/README.md`](firmware/duet3_6xd/README.md).
+
+**Not yet done.** `printer_msu` still targets the FMC and has not been ported
+to the Duet HTTP API — that is the next milestone. There is no e-stop chain and
+no hardware maximum limits (soft limits only, by decision), and the drive fault
+lines are unwired, so a servo alarm is currently invisible to the firmware. The
+tool controller is still open; a **Duet 3 Toolboard 1LC** on CAN-FD is the
+chosen route, which puts extruder sync inside the motion planner.
+
+**M6 / Auto Run is closed** — it was an FMC-specific workaround for a controller
+with no look-ahead, and is not needed on RepRapFirmware. Do not re-propose it.
 
 Customized multi-axis 3D printer control software (desktop) for a multi-module platform:
 
 - **XY** base motion for printing.
 - Multiple **tool modules** selected via G-code `T0`, `T1`, … (one active at a time).
-- v1 target: **Windows**, FMC006GE31 motion controller(s) + a separate **Tool Controller** (thermocouple heater + fan + extruder).
+- v1 target: **Windows** host; motion on a **Duet 3 Mainboard 6XD**
+  (RepRapFirmware) driving external Delta ASD-B3 servo drives, with a **Duet 3
+  Toolboard** over CAN-FD for the extruder and heater.
+  *Superseded 2026-08-24:* FMC006GE31 + a separate Marlin-class tool controller.
 
 ### Repository layout (matches the SRS architecture)
 
 - **`docs/`**: specifications and design docs
   - `docs/Software_SRS.md`
   - `docs/PRD_Motion_Control_Library.md`
+- **`firmware/duet3_6xd/`**: the live machine. Configuration that runs *on* the
+  controller (`config.g`, `homeall.g`, `homex/y/z.g` — mirrored on its SD card)
+  plus the host-side tools: `duet_send.py` (G-code over USB), `stream_gcode.py`
+  (HTTP streaming with flow control), `cura_to_msu.py` (slicer G-code → machine
+  G-code). Its README carries the wiring, Delta drive parameters, measured
+  performance and the silent-failure traps.
 - **`libs/fmc-motion/`**: standalone motion control library (`fmc_motion`) for
   FMC006GE31 6-axis controllers — real + sim backends, homing/self-check,
   per-axis queues. Install with `pip install -e libs/fmc-motion[dev]`; test
   with `pytest libs/fmc-motion/tests`.
+  **The hardware it drives is retired**; the library is finished and
+  hardware-validated, and is kept because `printer_msu` and its sim tests still
+  run on it pending the Duet port.
 - **`src/printer_msu/`**: application source (Python package)
   - `ui/`: PySide6 UI layer
   - `core/`: G-code parsing/interpreting, job state machine, routing
@@ -74,6 +98,23 @@ moves included (library v1.1 `move_line`).
 pytest            # printer core + motion library (152 tests, sim only)
 ```
 
+### Working with the Duet
+
+The board is at **192.168.0.40** (static — the lab segment has no DHCP server;
+see the firmware README). Duet Web Control is at <http://192.168.0.40>.
+
+```bash
+python firmware/duet3_6xd/cura_to_msu.py sliced.gcode job.gcode
+```
+
+```bash
+python firmware/duet3_6xd/stream_gcode.py 192.168.0.40 job.gcode
+```
+
+To preload instead of streaming, upload with `rr_upload` and run with `M32`;
+`duet_send.py` does the same over USB when the network is unavailable.
+
 ### Notes
-- The FMC006GE31 demo script is in `examples/fmc006ge31_basic_motion.py` (Windows-only).
+- The FMC006GE31 demo script is in `examples/fmc006ge31_basic_motion.py`
+  (Windows-only). Historical — that controller is retired.
 

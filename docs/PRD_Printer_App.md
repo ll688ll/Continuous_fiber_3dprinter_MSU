@@ -2,10 +2,27 @@
 
 | | |
 |---|---|
-| Status | Draft v0.1 (scope questions resolved 2026-08-11) |
+| Status | Draft v0.1 (scope questions resolved 2026-08-11). **PARTLY SUPERSEDED 2026-08-25 — see the banner below.** |
 | Date | 2026-08-11 |
 | Owner | Jacky Lyu |
-| Related docs | `docs/Software_SRS.md` (full system), `docs/COMMAND_LIST.md` (v1 command checklist), `docs/PRD_Motion_Control_Library.md` (motion HAL, finished) |
+| Related docs | `docs/Software_SRS.md` (full system), `docs/COMMAND_LIST.md` (v1 command checklist), `docs/PRD_Motion_Control_Library.md` (motion HAL, finished), **`firmware/duet3_6xd/README.md` (the live machine)** |
+
+> **Superseded where it concerns the controller.** This PRD was written against
+> the FMC006GE31, which has been **retired** — motion now runs on a Duet 3
+> Mainboard 6XD (RepRapFirmware) driving the same Delta ASD-B3 servo drives.
+> Two consequences for anything read below:
+>
+> - **M6 / Auto Run is CLOSED and must not be re-proposed** (§8 item 6, §9).
+>   It was a workaround for a controller with no look-ahead planner.
+> - The whole streaming/dispatch design exists to turn G-code into FMC calls.
+>   RepRapFirmware eats G-code directly, so that layer largely disappears; what
+>   survives is the parser and the slicer-to-machine transform
+>   (`firmware/duet3_6xd/cura_to_msu.py`). `printer_msu` becomes a front end
+>   over the Duet HTTP API — **this port is the next milestone and has not
+>   started.**
+>
+> The requirements, scope decisions D1–D4 and the G-code semantics below all
+> still stand.
 
 ## 1. Overview
 
@@ -356,8 +373,18 @@ number), `PreflightError`, `JobError`.
    (`MarlinToolController` per `docs/Tool_Controller_Options_Q1.md` R1),
    `ACT_MOVE_LINEAR_SYNC`, thermal policies; then arc segmentation,
    resume-from-line, profiles UI.
-6. **M6 — continuous motion via vendor Auto Run (NEXT, new session)**:
-   scope in §9. Independent of M5 — can start immediately. Plan sketch:
+6. **M6 — continuous motion via vendor Auto Run — CLOSED 2026-08-14, NOT
+   NEEDED. Do not re-propose.** The FMC006GE31 has no look-ahead planner, so
+   every segment decelerates to zero regardless of how commands are delivered;
+   Auto Run addressed the delivery overhead, not the cause. The controller was
+   replaced instead — see the root `README.md` and
+   `firmware/duet3_6xd/README.md`. On RepRapFirmware the problem does not
+   exist: the reference Cura file runs in 2148 s against the FMC's modelled
+   4778 s, and both delivery modes (preload on the board, or stream from the
+   host) are proven within 1.2 % of each other. The original plan is kept below
+   for its reasoning only.
+
+   ~~Scope in §9. Independent of M5 — can start immediately. Plan sketch:~~
    (a) read `docs/FMC006GE31-自动化编程_V1.2.docx` for the `.elo` script
    language; (b) script generator from the interpreted action stream;
    (c) backend: `Download_File(type=2)` + `Start_Auto_Run` +
