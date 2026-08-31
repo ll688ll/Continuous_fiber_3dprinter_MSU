@@ -21,6 +21,9 @@ chosen route, which puts extruder sync inside the motion planner.
 **M6 / Auto Run is closed** — it was an FMC-specific workaround for a controller
 with no look-ahead, and is not needed on RepRapFirmware. Do not re-propose it.
 
+**Picking this up again?** Start at [`docs/TODO.md`](docs/TODO.md) — the
+outstanding work in priority order, with the traps that go with each item.
+
 Customized multi-axis 3D printer control software (desktop) for a multi-module platform:
 
 - **XY** base motion for printing.
