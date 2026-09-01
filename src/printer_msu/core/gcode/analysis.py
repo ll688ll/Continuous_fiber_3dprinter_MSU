@@ -21,11 +21,33 @@ class UsageReport:
     uses_inches: bool = False
     z_or_e_before_tool: bool = False
 
+    # ---- function needs (capability preflight / UI scan, V2-M5) ----
+    @property
+    def needs_heater(self) -> bool:
+        return self.commands["M104"] + self.commands["M109"] > 0
+
+    @property
+    def reports_temp(self) -> bool:
+        return self.commands["M105"] > 0
+
+    @property
+    def needs_fan(self) -> bool:
+        return self.commands["M106"] + self.commands["M107"] > 0
+
+    @property
+    def extrudes(self) -> bool:
+        return "E" in self.axis_words
+
     def summary(self) -> str:
         tools = " ".join(f"T{t}" for t in sorted(self.tools_referenced)) or "-"
         axes = " ".join(sorted(self.axis_words)) or "-"
+        needs = [label for flag, label in
+                 ((self.needs_heater, "heater"), (self.extrudes, "extruder"),
+                  (self.needs_fan, "fan"), (self.has_arcs, "arcs"))
+                 if flag]
+        extra = f"; needs: {', '.join(needs)}" if needs else ""
         return (f"{self.line_count} lines, {self.motion_segments} motion "
-                f"segments; tools: {tools}; axes: {axes}")
+                f"segments; tools: {tools}; axes: {axes}{extra}")
 
 
 def analyze(lines: Iterable[GcodeLine]) -> UsageReport:

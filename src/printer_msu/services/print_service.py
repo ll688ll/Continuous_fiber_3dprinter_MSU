@@ -28,6 +28,7 @@ from ..core.model.actions import (
     Action,
     EndProgram,
     HomeAxes,
+    MoveArc,
     MoveLinear,
     PauseProgram,
     SelectTool,
@@ -74,6 +75,12 @@ def run_preflight(profile: MachineProfile, adapter,
     """
     report = PreflightReport()
 
+    # capability gaps FIRST (V2-M5, requirement 5): what the file needs that
+    # this machine lacks, readable even fully offline. The interpreter's
+    # skip tallies are exactly that gap — commands recognized but skipped
+    # because no hardware backs them.
+    _check_capability_gaps(result, report)
+
     for diag in result.errors:
         report.add("error", f"line {diag.line_no}: {diag.message}")
     for diag in result.warnings:
@@ -97,7 +104,8 @@ def run_preflight(profile: MachineProfile, adapter,
                 report.add(level, f"board config drift: {finding} "
                                   f"(policies.config_drift={profile.policies.config_drift})")
 
-    moves = [a for a in result.actions if isinstance(a, MoveLinear)]
+    moves = [a for a in result.actions
+             if isinstance(a, (MoveLinear, MoveArc))]
 
     # homing coverage (FR-PRE-01 / FR-JOB-07)
     will_home_first = home_first or profile.policies.home_before_print
@@ -106,7 +114,7 @@ def run_preflight(profile: MachineProfile, adapter,
         first_move: dict[str, int] = {}
         first_home: dict[str, int] = {}
         for i, action in enumerate(result.actions):
-            if isinstance(action, MoveLinear):
+            if isinstance(action, (MoveLinear, MoveArc)):
                 for axis in action.axes:
                     first_move.setdefault(axis, i)
             elif isinstance(action, HomeAxes):
@@ -126,11 +134,14 @@ def run_preflight(profile: MachineProfile, adapter,
                     f"policies.require_homed=false)")
 
     # composite feed vs. axis maxima (FR-PRE-01; policy: clamp or error)
-    max_speeds = adapter.max_speeds()
+    # adapter=None: fully offline scan (UI pre-connect panel) — the checks
+    # that need machine data are skipped, the file-side ones still run
+    max_speeds = adapter.max_speeds() if adapter is not None else {}
     offending: list[tuple[int, float, float]] = []
     for move in moves:
-        limit = min(max_speeds[a] for a in move.axes if a in max_speeds)
-        if move.feed_mm_s > limit + 1e-9:
+        limit = min((max_speeds[a] for a in move.axes if a in max_speeds),
+                    default=None)  # extrusion-only moves / offline scan
+        if limit is not None and move.feed_mm_s > limit + 1e-9:
             offending.append((move.line_no, move.feed_mm_s, limit))
     if offending:
         line_no, feed, limit = offending[0]
@@ -148,6 +159,38 @@ def run_preflight(profile: MachineProfile, adapter,
         _check_envelope(profile, adapter, result, report)
 
     return report
+
+
+def _check_capability_gaps(result: InterpretResult,
+                           report: PreflightReport) -> None:
+    """Requirement 5: name the functions the file wants but the machine
+    lacks, in plain language, before anything runs. Works offline — the
+    interpreter's skip tallies ARE the gap."""
+    sk = result.skipped
+    heater = sk.get("M104", 0) + sk.get("M109", 0)
+    if heater:
+        report.add("warning",
+                   f"file sets tool temperatures ({heater}x M104/M109) but no "
+                   f"heater is configured on the target tool - they will be "
+                   f"skipped (add tools[].heater to the profile, or re-slice)")
+    if sk.get("E", 0):
+        report.add("warning",
+                   f"file extrudes ({sk['E']}x E words) but no extruder is "
+                   f"configured - motion will run WITHOUT extrusion (dry run; "
+                   f"add tools[].extruder when the hardware lands)")
+    fan = sk.get("M106", 0) + sk.get("M107", 0)
+    if fan:
+        report.add("info",
+                   f"file drives a part fan ({fan}x M106/M107) but no fan is "
+                   f"configured - skipped")
+    if sk.get("M105", 0):
+        report.add("info", "file polls temperatures (M105); temperatures come "
+                           "from status polling instead")
+    axis_gaps = {k: v for k, v in sk.items() if k.startswith("axis:")}
+    for key, count in sorted(axis_gaps.items()):
+        report.add("warning",
+                   f"{count}x motion component dropped: {key[5:]} "
+                   f"(policies.missing_axis=skip)")
 
 
 def _check_envelope(profile: MachineProfile, adapter,
@@ -183,6 +226,22 @@ def _check_envelope(profile: MachineProfile, adapter,
                 if not (lo - 1e-6 <= target <= hi + 1e-6):
                     violations.setdefault(axis, []).append(
                         (action.line_no, target))
+        elif isinstance(action, MoveArc):
+            # conservative: the arc stays within [min(start,end)-r,
+            # max(start,end)+r] on each axis — check that band, not the path
+            r = action.radius_mm
+            for axis, end in action.axes.items():
+                start = positions.get(axis, end)
+                positions[axis] = end
+                lo_hi = limits.get(axis)
+                if lo_hi is None:
+                    continue
+                lo, hi = lo_hi
+                band_lo = min(start, end) - r
+                band_hi = max(start, end) + r
+                if band_lo < lo - 1e-6 or band_hi > hi + 1e-6:
+                    violations.setdefault(axis, []).append(
+                        (action.line_no, band_lo if band_lo < lo else band_hi))
     for axis in sorted(limits):
         if limits[axis] is None and any(
                 axis in a.axes for a in result.actions

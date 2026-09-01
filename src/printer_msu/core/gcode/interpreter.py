@@ -26,6 +26,7 @@ from ...core.model.actions import (
     Action,
     EndProgram,
     HomeAxes,
+    MoveArc,
     MoveLinear,
     PauseProgram,
     SelectTool,
@@ -161,10 +162,15 @@ class GcodeInterpreter:
             st.last_motion_code = code
             self._motion(code, line, result)
         elif code in (2, 3):
-            result.diagnostics.append(Diagnostic(
-                line.line_no,
-                f"G{code}: arcs are not supported in v1 (decision D4) — "
-                f"re-slice with arcs disabled", fatal=True))
+            if self._supports_arcs():
+                self._arc(code, line, result)
+            else:
+                result.diagnostics.append(Diagnostic(
+                    line.line_no,
+                    f"G{code}: arcs are not supported by this machine's "
+                    f"controller (D4/D5; policies.arcs="
+                    f"{self.profile.policies.arcs!r}) — re-slice with arcs "
+                    f"disabled", fatal=True))
         elif code == 20:
             st.units = Units.INCH
             result.diagnostics.append(Diagnostic(
@@ -314,6 +320,82 @@ class GcodeInterpreter:
                                              feed_mm_s=feed, relative=relative,
                                              rapid=code == 0,
                                              e_delta=e_delta))
+
+    def _supports_arcs(self) -> bool:
+        """D5: arcs are capability-gated — accepted only when the motion
+        controller executes them natively (Duet/RRF) AND policies.arcs allows.
+        The FMC path keeps the D4 rejection verbatim."""
+        from ...config.profile import CONTROLLER_DUET
+
+        if self.profile.policies.arcs == POLICY_ERROR:
+            return False
+        return self.profile.motion_controller.type == CONTROLLER_DUET
+
+    def _arc(self, code: int, line: GcodeLine,
+             result: InterpretResult) -> None:
+        st = self.state
+        words = line.words
+        if st.distance_mode is DistanceMode.RELATIVE:
+            result.diagnostics.append(Diagnostic(
+                line.line_no, f"G{code}: arcs in relative mode (G91) are not "
+                              f"supported", fatal=True))
+            return
+        if "Z" in words:
+            result.diagnostics.append(Diagnostic(
+                line.line_no, f"G{code}: helical (Z) arcs are not supported "
+                              f"(decision D9)", fatal=True))
+            return
+        if "X" not in words and "Y" not in words:
+            result.diagnostics.append(Diagnostic(
+                line.line_no, f"G{code}: full-circle arcs (no endpoint) are "
+                              f"not supported", fatal=True))
+            return
+        has_ij = words.get("I") is not None or words.get("J") is not None
+        has_r = words.get("R") is not None
+        if not has_ij and not has_r:
+            result.diagnostics.append(Diagnostic(
+                line.line_no, f"G{code} requires I/J or R", fatal=True))
+            return
+
+        e_delta = None
+        if words.get("E") is not None:
+            e = float(words["E"])
+            if st.extruder_mode is ExtruderMode.RELATIVE:
+                delta = e
+                st.virtual_e += e
+            else:
+                delta = e - st.virtual_e
+                st.virtual_e = e
+            tool = self._active_tool_config(line.line_no, result)
+            if tool is not None and tool.extruder is not None:
+                e_delta = delta
+            else:
+                self._skip_tool_command(
+                    "E", "extrusion deferred (no extruder configured)",
+                    line, result)
+
+        targets: dict[str, float] = {}
+        for word in ("X", "Y"):
+            if words.get(word) is None:
+                continue
+            name = self._route_axis(word, line.line_no, result)
+            if name is None:
+                return  # unmapped X/Y makes the arc unexecutable
+            targets[name] = self._to_machine(word, float(words[word]),
+                                             relative=False)
+        feed = self._feed_for(code, line, result)
+        if feed is None:
+            return
+        # I/J are offsets from the start point: translation-invariant under
+        # the workspace xy_offset, so they pass through untouched (guarded by
+        # tests — revisit if any non-translational XY transform ever lands)
+        result.actions.append(MoveArc(
+            line_no=line.line_no, axes=targets,
+            i_offset=float(words["I"]) if words.get("I") is not None else None,
+            j_offset=float(words["J"]) if words.get("J") is not None else None,
+            radius=float(words["R"]) if has_r else None,
+            clockwise=code == 2, feed_mm_s=feed, e_delta=e_delta))
+        st.last_motion_code = None  # bare words after an arc are ambiguous
 
     def _to_machine(self, word: str, value: float, relative: bool) -> float:
         """Slicer frame -> machine frame (FR-INT-08, profile workspace)."""

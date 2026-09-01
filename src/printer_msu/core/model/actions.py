@@ -49,6 +49,38 @@ class MoveLinear(Action):
 
 
 @dataclass(frozen=True)
+class MoveArc(Action):
+    """G2/G3 arc in the XY plane (V2-M5, decision D5: arcs are accepted only
+    when the backend supports them — the Duet's RRF does natively).
+
+    ``axes`` holds the ABSOLUTE machine-frame endpoint (X/Y); ``i_offset``/
+    ``j_offset`` are center offsets from the start point (translation-
+    invariant, so workspace xy_offset does not touch them); ``radius`` is the
+    R-form alternative. Helical (Z) arcs stay rejected (D9).
+    """
+
+    axes: Mapping[str, float] = field(default_factory=dict)
+    i_offset: Optional[float] = None
+    j_offset: Optional[float] = None
+    radius: Optional[float] = None
+    clockwise: bool = True
+    feed_mm_s: float = 0.0
+    e_delta: Optional[float] = None
+
+    @property
+    def radius_mm(self) -> float:
+        if self.radius is not None:
+            return abs(self.radius)
+        return ((self.i_offset or 0.0) ** 2
+                + (self.j_offset or 0.0) ** 2) ** 0.5
+
+    def describe(self) -> str:
+        coords = " ".join(f"{a}={v:.3f}" for a, v in sorted(self.axes.items()))
+        return (f"{'G2' if self.clockwise else 'G3'} {coords} "
+                f"r={self.radius_mm:.2f} @{self.feed_mm_s:.1f}mm/s")
+
+
+@dataclass(frozen=True)
 class HomeAxes(Action):
     """Home the named logical axes; None = all mapped axes (G28 / preflight)."""
 
@@ -121,6 +153,12 @@ def serialize(action: Action) -> dict[str, Any]:
     if isinstance(action, MoveLinear):
         data.update(axes=dict(action.axes), feed_mm_s=action.feed_mm_s,
                     relative=action.relative, rapid=action.rapid)
+        if action.e_delta is not None:
+            data.update(e_delta=action.e_delta)
+    elif isinstance(action, MoveArc):
+        data.update(axes=dict(action.axes), i_offset=action.i_offset,
+                    j_offset=action.j_offset, radius=action.radius,
+                    clockwise=action.clockwise, feed_mm_s=action.feed_mm_s)
         if action.e_delta is not None:
             data.update(e_delta=action.e_delta)
     elif isinstance(action, HomeAxes):

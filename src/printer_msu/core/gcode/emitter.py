@@ -22,6 +22,7 @@ from ...core.model.actions import (
     Action,
     EndProgram,
     HomeAxes,
+    MoveArc,
     MoveLinear,
     PauseProgram,
     SelectTool,
@@ -101,7 +102,7 @@ def emit_machine_gcode(actions: list[Action],
     emit(f"; printer_msu job for profile {profile.profile_name!r}")
     emit("G21")
     emit("G90")
-    if any(isinstance(a, MoveLinear) and a.e_delta is not None
+    if any(isinstance(a, (MoveLinear, MoveArc)) and a.e_delta is not None
            for a in actions):
         emit("M83")  # extrusion is emitted as relative deltas, always
 
@@ -130,6 +131,25 @@ def emit_machine_gcode(actions: list[Action],
                         program.final_targets[a] += v
                 else:
                     program.final_targets[a] = v
+        elif isinstance(action, MoveArc):
+            if relative:
+                emit("G90", action.line_no)
+                relative = False
+            parts = [f"{letter(a)}{_fmt(v)}" for a, v in action.axes.items()]
+            if action.radius is not None:
+                parts.append(f"R{_fmt(action.radius)}")
+            else:
+                if action.i_offset is not None:
+                    parts.append(f"I{_fmt(action.i_offset)}")
+                if action.j_offset is not None:
+                    parts.append(f"J{_fmt(action.j_offset)}")
+            if action.e_delta is not None:
+                parts.append(f"E{_fmt(action.e_delta)}")
+            code = "G2" if action.clockwise else "G3"
+            emit(f"{code} {' '.join(parts)} F{_fmt(action.feed_mm_s * 60.0)}",
+                 action.line_no)
+            for a, v in action.axes.items():
+                program.final_targets[a] = v
         elif isinstance(action, HomeAxes):
             if relative:
                 emit("G90", action.line_no)
