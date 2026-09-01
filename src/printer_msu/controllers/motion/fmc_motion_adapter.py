@@ -159,6 +159,7 @@ class FmcMotionAdapter(BaseMotionController):
     def capabilities(self) -> dict:
         caps = dict(self._ctrl.capabilities())
         caps["axis_names"] = sorted(self._name_to_index)
+        caps["execution"] = "moves"  # per-move dispatch through move_async
         return caps
 
     def homed_axes(self) -> set[str]:

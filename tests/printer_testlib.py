@@ -60,3 +60,43 @@ def make_profile(**overrides) -> MachineProfile:
         else:
             data[key] = value
     return profile_from_dict(data)
+
+
+# ------------------------------------------------------------ duet profiles
+DUET_PROFILE_DATA = {
+    "schema_version": 2,
+    "profile_name": "duet test machine",
+    "controllers": [
+        {"id": "duet", "type": "duet",
+         "connection": {"host": "192.168.0.40"}},
+    ],
+    "axes": [
+        {"name": "X", "controller": "duet", "channel": 0, "letter": "X",
+         "steps_per_mm": 142.857, "max_speed_mm_s": 200.0,
+         "max_accel_mm_s2": 1000.0, "jerk_mm_s": 8.0,
+         "limits_mm": [0.0, 987.448],
+         "endstop": {"end": "min", "pin": "io3.in", "inverted": True}},
+        {"name": "Y", "controller": "duet", "channel": 1, "letter": "Y",
+         "steps_per_mm": 142.857, "max_speed_mm_s": 200.0,
+         "max_accel_mm_s2": 1000.0, "jerk_mm_s": 8.0,
+         "limits_mm": [0.0, 290.269],
+         "endstop": {"end": "min", "pin": "io4.in", "inverted": True}},
+        {"name": "Z_T0", "controller": "duet", "channel": 2, "letter": "Z",
+         "steps_per_mm": 500.0, "max_speed_mm_s": 100.0,
+         "max_accel_mm_s2": 800.0, "jerk_mm_s": 2.0,
+         "limits_mm": [0.0, 282.306], "homes_up": True,
+         "endstop": {"end": "min", "pin": "io5.in", "inverted": True}},
+    ],
+    "tools": [{"tool_index": 0, "z_axis": "Z_T0", "plane_offset_mm": 100.0}],
+    "gcode": {"default_tool": 0, "default_feed_mm_min": 1200.0,
+              "travel_feed_mm_min": 2400.0},
+    "workspace": {"xy_offset": {"X": 30.0, "Y": 30.0}, "z_mode": "bed"},
+    "policies": {},
+}
+
+
+def make_duet_profile(**overrides) -> MachineProfile:
+    data = copy.deepcopy(DUET_PROFILE_DATA)
+    for key, value in overrides.items():
+        data[key] = value
+    return profile_from_dict(data)

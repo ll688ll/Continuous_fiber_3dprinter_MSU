@@ -87,6 +87,15 @@ def run_preflight(profile: MachineProfile, adapter,
             return report
         if status.emergency_active:
             report.add("error", "emergency stop is active")
+        # board-config drift found at connect (Duet: profile vs live M92/M208;
+        # a hand-edited SD card must not silently outvote the profile)
+        drift = getattr(adapter, "drift_findings", None) or []
+        if drift:
+            level = ("error" if profile.policies.config_drift == POLICY_ERROR
+                     else "warning")
+            for finding in drift:
+                report.add(level, f"board config drift: {finding} "
+                                  f"(policies.config_drift={profile.policies.config_drift})")
 
     moves = [a for a in result.actions if isinstance(a, MoveLinear)]
 

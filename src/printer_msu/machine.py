@@ -47,9 +47,16 @@ def build_machine(profile: MachineProfile) -> Machine:
                        motion_controller_id=owner.id)
 
     if owner.type == CONTROLLER_DUET:
-        raise ProfileError(
-            f"controller {owner.id!r}: the Duet backend lands in milestone "
-            f"V2-M2 - this profile validates but cannot be driven yet")
+        from .controllers.motion.duet.adapter import DuetMotionAdapter
+        from .controllers.motion.duet.client import DuetClient
+
+        conn = owner.connection
+        client = DuetClient(conn["host"],
+                            password=conn.get("password", ""),
+                            timeout_s=float(conn.get("http_timeout_s", 20.0)))
+        adapter = DuetMotionAdapter(client, profile.axes_on(owner.id))
+        return Machine(profile=profile, motion=adapter,
+                       motion_controller_id=owner.id)
 
     raise ProfileError(f"unknown controller type {owner.type!r}")  # unreachable
 
