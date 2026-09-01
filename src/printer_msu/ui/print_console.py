@@ -44,6 +44,7 @@ from ..core.model.print_job import PrintJobState, TERMINAL_STATES
 from ..machine import build_adapter
 from ..services.print_service import PrintJobRunner, run_preflight
 from .bridge import JobBridge, StatusPoller, TaskRunner, UiLogHandler
+from .manual_page import ManualPage
 from .setup_page import SetupPage
 
 logger = logging.getLogger("printer_msu.ui")
@@ -68,6 +69,10 @@ class PrintConsoleWindow(QMainWindow):
         self.gcode_path: Optional[Path] = None
         self.report_dir = Path("logs")
         self._estop_active = False
+        #: count of in-flight 'start'/'check' preflight tasks — the manual
+        #: page refuses to dispatch while any is pending (job_active only
+        #: turns true AFTER preflight passes, leaving a gap otherwise)
+        self._pending_job_tasks = 0
 
         self.tasks = TaskRunner(self)
         self.tasks.finished.connect(self._on_task_finished)
@@ -201,6 +206,8 @@ class PrintConsoleWindow(QMainWindow):
         root.addWidget(splitter, 1)
 
         self.tabs.addTab(central, "Print")
+        self.manual_page = ManualPage(self)
+        self.tabs.addTab(self.manual_page, "Manual")
         self.setup_page = SetupPage(self)
         self.setup_page.profile_saved.connect(self.load_profile)
         self.tabs.addTab(self.setup_page, "Setup")
@@ -230,6 +237,7 @@ class PrintConsoleWindow(QMainWindow):
             f"axes: {', '.join(self.profile.axis_names)}")
         self._log(f"profile loaded: {self.profile.profile_name}")
         self.setup_page.load_from(self.profile, path)
+        self.manual_page.set_profile(self.profile)
         if self.gcode_path is not None:
             self._scan_capabilities()
         self._update_buttons()
@@ -282,10 +290,16 @@ class PrintConsoleWindow(QMainWindow):
         self.tasks.run("disconnect",
                        lambda: adapter.disconnect() if adapter else None)
 
+    @property
+    def pending_job_tasks(self) -> int:
+        return self._pending_job_tasks
+
     # ------------------------------------------------------------------- job
     def check_file(self) -> None:
         if not (self.profile and self.adapter and self.gcode_path):
             return
+        if self.manual_page.is_busy:
+            return  # belt-and-braces beyond the disabled button
         profile, adapter, path = self.profile, self.adapter, self.gcode_path
         home_first = self.home_first_check.isChecked()
 
@@ -296,6 +310,7 @@ class PrintConsoleWindow(QMainWindow):
             return result, report
 
         self.check_btn.setEnabled(False)
+        self._pending_job_tasks += 1
         self.tasks.run("check", _check)
 
     def start_print(self) -> None:
@@ -303,6 +318,8 @@ class PrintConsoleWindow(QMainWindow):
             return
         if self.runner is not None and self.runner.state not in TERMINAL_STATES:
             return
+        if self.manual_page.is_busy:
+            return  # belt-and-braces beyond the disabled button
         profile, adapter, path = self.profile, self.adapter, self.gcode_path
         home_first = self.home_first_check.isChecked()
 
@@ -313,6 +330,7 @@ class PrintConsoleWindow(QMainWindow):
             return result, report
 
         self.start_btn.setEnabled(False)
+        self._pending_job_tasks += 1
         self.tasks.run("start", _prepare)
 
     def pause_print(self) -> None:
@@ -355,10 +373,24 @@ class PrintConsoleWindow(QMainWindow):
     # ------------------------------------------------------- task completions
     def _on_task_finished(self, name: str, result: object,
                           error: Optional[str]) -> None:
+        if name in ("start", "check"):
+            self._pending_job_tasks = max(0, self._pending_job_tasks - 1)
         if error is not None:
             self._log(f"{name} failed: {error}")
             if name == "connect":
                 self.conn_label.setText("connection failed")
+            elif name == "disconnect":
+                # even a failed disconnect leaves no usable adapter (it was
+                # nulled eagerly) — the manual page must not keep a live
+                # E-STOP mirror pointing at nothing
+                self.manual_page.set_connected(False)
+            elif name.startswith("manual"):
+                self.manual_page.on_manual_finished(name, error)
+            self._update_buttons()
+            return
+
+        if name.startswith("manual"):
+            self.manual_page.on_manual_finished(name, None)
             self._update_buttons()
             return
 
@@ -377,6 +409,7 @@ class PrintConsoleWindow(QMainWindow):
             self.adapter = result
             self.conn_label.setText("connected")
             self._log("controller connected")
+            self.manual_page.set_connected(True)
             interval = 0.2 if self.profile.is_sim else 0.5
             self.poller = StatusPoller(self.adapter, interval_s=interval,
                                        parent=self)
@@ -388,6 +421,7 @@ class PrintConsoleWindow(QMainWindow):
             self.conn_label.setText("disconnected")
             self._log("controller disconnected")
             self.axis_table.setRowCount(0)
+            self.manual_page.set_connected(False)
         elif name == "parse":
             self.usage_label.setText(result.summary())
             self._log(f"file loaded: {result.summary()}")
@@ -449,6 +483,7 @@ class PrintConsoleWindow(QMainWindow):
                         Qt.AlignmentFlag.AlignRight
                         | Qt.AlignmentFlag.AlignVCenter)
                 self.axis_table.setItem(row, col, item)
+        self.manual_page.update_status(snapshot)
         self._estop_active = bool(snapshot["estop"])
         if self._estop_active:
             self.estop_label.setText("EMERGENCY STOP ACTIVE")
@@ -464,18 +499,24 @@ class PrintConsoleWindow(QMainWindow):
         connected = self.adapter is not None
         state = self._job_state()
         job_active = state is not None and state not in TERMINAL_STATES
+        # an in-flight manual op blocks everything that would talk to the
+        # controller concurrently (start/check preflight I/O, disconnect,
+        # clear-estop's M999 reboot) — the E-STOP button stays live
+        manual_busy = self.manual_page.is_busy
+        blocked = job_active or manual_busy
         self.load_profile_btn.setEnabled(not connected)
-        self.connect_btn.setEnabled(self.profile is not None and not job_active)
+        self.connect_btn.setEnabled(self.profile is not None and not blocked)
         self.connect_btn.setText("Disconnect" if connected else "Connect")
         self.check_btn.setEnabled(connected and self.gcode_path is not None
-                                  and not job_active)
+                                  and not blocked)
         self.start_btn.setEnabled(connected and self.gcode_path is not None
-                                  and not job_active)
+                                  and not blocked)
         self.pause_btn.setEnabled(job_active and state is PrintJobState.RUNNING)
         self.resume_btn.setEnabled(job_active and state is PrintJobState.PAUSED)
         self.stop_btn.setEnabled(job_active)
         self.estop_btn.setEnabled(connected)
-        self.clear_estop_btn.setEnabled(connected and not job_active)
+        self.clear_estop_btn.setEnabled(connected and not blocked)
+        self.manual_page.set_job_active(job_active)
 
     def _log(self, message: str) -> None:
         self._append_log_line(message)
