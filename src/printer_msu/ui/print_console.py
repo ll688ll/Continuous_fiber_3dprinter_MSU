@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -43,6 +44,7 @@ from ..core.model.print_job import PrintJobState, TERMINAL_STATES
 from ..machine import build_adapter
 from ..services.print_service import PrintJobRunner, run_preflight
 from .bridge import JobBridge, StatusPoller, TaskRunner, UiLogHandler
+from .setup_page import SetupPage
 
 logger = logging.getLogger("printer_msu.ui")
 
@@ -60,6 +62,7 @@ class PrintConsoleWindow(QMainWindow):
         self.resize(900, 640)
 
         self.profile: Optional[MachineProfile] = None
+        self.profile_path: Optional[str] = None
         self.adapter = None
         self.runner: Optional[PrintJobRunner] = None
         self.gcode_path: Optional[Path] = None
@@ -89,6 +92,7 @@ class PrintConsoleWindow(QMainWindow):
 
     # ------------------------------------------------------------------- ui
     def _build_ui(self) -> None:
+        self.tabs = QTabWidget()
         central = QWidget()
         root = QVBoxLayout(central)
 
@@ -129,6 +133,13 @@ class PrintConsoleWindow(QMainWindow):
         fgrid.addWidget(self.usage_label, 1, 0)
         fgrid.addWidget(self.check_btn, 1, 1)
         fgrid.addWidget(self.check_label, 1, 2)
+        self.capability_view = QPlainTextEdit()
+        self.capability_view.setReadOnly(True)
+        self.capability_view.setMaximumBlockCount(200)
+        self.capability_view.setFixedHeight(72)
+        self.capability_view.setPlaceholderText(
+            "capability scan: open a file with a profile loaded")
+        fgrid.addWidget(self.capability_view, 2, 0, 1, 3)
         root.addWidget(file_box)
 
         # job controls
@@ -189,7 +200,11 @@ class PrintConsoleWindow(QMainWindow):
         splitter.setSizes([380, 520])
         root.addWidget(splitter, 1)
 
-        self.setCentralWidget(central)
+        self.tabs.addTab(central, "Print")
+        self.setup_page = SetupPage(self)
+        self.setup_page.profile_saved.connect(self.load_profile)
+        self.tabs.addTab(self.setup_page, "Setup")
+        self.setCentralWidget(self.tabs)
 
     # ----------------------------------------------------------- profile/file
     def _browse_profile(self) -> None:
@@ -208,11 +223,15 @@ class PrintConsoleWindow(QMainWindow):
             self._log(f"profile load failed: {exc}")
             QMessageBox.warning(self, "Profile", str(exc))
             return
+        self.profile_path = path
         self.profile_edit.setText(path)
         self.profile_label.setText(
             f"{self.profile.profile_name} — mode: {self.profile.mode_label}, "
             f"axes: {', '.join(self.profile.axis_names)}")
         self._log(f"profile loaded: {self.profile.profile_name}")
+        self.setup_page.load_from(self.profile, path)
+        if self.gcode_path is not None:
+            self._scan_capabilities()
         self._update_buttons()
 
     def _browse_gcode(self) -> None:
@@ -226,6 +245,8 @@ class PrintConsoleWindow(QMainWindow):
         self.file_label.setText(str(path))
         self.check_label.setText("")
         self.tasks.run("parse", lambda: analyze(parse_file(path)))
+        if self.profile is not None:
+            self._scan_capabilities()
         self._update_buttons()
 
     # ------------------------------------------------------------ connection
@@ -318,6 +339,19 @@ class PrintConsoleWindow(QMainWindow):
         if self.adapter is not None:
             self.tasks.run("clear_estop", self.adapter.clear_estop)
 
+    def _scan_capabilities(self) -> None:
+        """Requirement 5: right after loading a file, report which functions
+        and axes it needs that this machine lacks — fully offline, before any
+        Connect/Check."""
+        profile, path = self.profile, self.gcode_path
+
+        def _scan():
+            result = interpret(parse_file(path), profile)
+            return run_preflight(profile, adapter=None, result=result,
+                                 offline=True)
+
+        self.tasks.run("capability_scan", _scan)
+
     # ------------------------------------------------------- task completions
     def _on_task_finished(self, name: str, result: object,
                           error: Optional[str]) -> None:
@@ -328,7 +362,18 @@ class PrintConsoleWindow(QMainWindow):
             self._update_buttons()
             return
 
-        if name == "connect":
+        if name == "capability_scan":
+            findings = result.findings
+            if findings:
+                self.capability_view.setPlainText(
+                    "\n".join(str(f) for f in findings))
+            else:
+                self.capability_view.setPlainText(
+                    "no gaps: the machine covers everything this file needs")
+        elif name == "apply_config":
+            self._log(f"uploaded {result} — reset the board (M999 in DWC or "
+                      f"power cycle) to apply, then re-home")
+        elif name == "connect":
             self.adapter = result
             self.conn_label.setText("connected")
             self._log("controller connected")

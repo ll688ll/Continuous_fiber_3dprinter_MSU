@@ -156,3 +156,94 @@ def test_status_table_updates(qapp, window):
     names = {window.axis_table.item(r, 0).text()
              for r in range(window.axis_table.rowCount())}
     assert names == {"X", "Y", "Z_T0"}
+
+
+# ---------------------------------------------------------- V2-M6 additions
+HEATED_GCODE = "T0\nG28\nM104 S200\nG1 X10 Y10 E1 F600\nM2\n"
+
+
+def test_window_has_print_and_setup_tabs(qapp, window):
+    labels = [window.tabs.tabText(i) for i in range(window.tabs.count())]
+    assert labels == ["Print", "Setup"]
+
+
+def test_capability_panel_reports_gaps_offline(qapp, files, tmp_path):
+    """Requirement 5 in the UI: gaps show right after opening the file,
+    before any Connect."""
+    profile_path, _ = files
+    heated = tmp_path / "heated.gcode"
+    heated.write_text(HEATED_GCODE, encoding="utf-8")
+    win = PrintConsoleWindow()
+    try:
+        win.load_profile(str(profile_path))
+        win.open_gcode(str(heated))
+        assert pump(qapp,
+                    lambda: "no heater" in win.capability_view.toPlainText())
+        text = win.capability_view.toPlainText()
+        assert "WITHOUT extrusion" in text
+        assert win.adapter is None  # never connected
+    finally:
+        win.close()
+        qapp.processEvents()
+
+
+def test_setup_page_populates_and_saves_edit(qapp, files):
+    profile_path, _ = files
+    win = PrintConsoleWindow()
+    try:
+        win.load_profile(str(profile_path))
+        page = win.setup_page
+        # axes table shows the three migrated axes
+        names = [page.axes_table.item(r, 0).text()
+                 for r in range(page.axes_table.rowCount())]
+        assert names == ["X", "Y", "Z_T0"]
+        # edit the tool plane offset and save
+        page.tools_table.item(0, 2).setText("123.456")
+        assert page.save()
+        saved = json.loads(profile_path.read_text(encoding="utf-8"))
+        assert saved["schema_version"] == 2  # canonical v2 written
+        assert saved["tools"][0]["plane_offset_mm"] == 123.456
+        # window reloaded the saved profile via the signal
+        assert pump(qapp,
+                    lambda: win.profile.tool(0).plane_offset_mm == 123.456)
+    finally:
+        win.close()
+        qapp.processEvents()
+
+
+def test_setup_page_rejects_invalid_edit(qapp, files, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    # modal dialogs block forever offscreen; the status label carries the news
+    monkeypatch.setattr(QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: None))
+    profile_path, _ = files
+    win = PrintConsoleWindow()
+    try:
+        win.load_profile(str(profile_path))
+        page = win.setup_page
+        before = profile_path.read_text(encoding="utf-8")
+        page.tools_table.item(0, 2).setText("not-a-number")
+        assert not page.save()
+        assert "NOT saved" in page.setup_status.text()
+        assert profile_path.read_text(encoding="utf-8") == before
+    finally:
+        win.close()
+        qapp.processEvents()
+
+
+def test_setup_page_preview_generates_board_config(qapp, tmp_path):
+    from printer_testlib import DUET_PROFILE_DATA
+
+    duet_path = tmp_path / "duet.json"
+    duet_path.write_text(json.dumps(DUET_PROFILE_DATA), encoding="utf-8")
+    win = PrintConsoleWindow()
+    try:
+        win.load_profile(str(duet_path))
+        text = win.setup_page.preview_text()
+        assert text.splitlines()[0].startswith(";")
+        assert "M584 X0 Y1 Z2" in text
+        assert 'M574 X1 S1 P"!io3.in"' in text
+    finally:
+        win.close()
+        qapp.processEvents()
