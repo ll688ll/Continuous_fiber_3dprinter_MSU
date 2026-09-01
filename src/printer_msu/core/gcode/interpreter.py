@@ -289,10 +289,13 @@ class GcodeInterpreter:
         if word in ("X", "Y"):
             return value if relative else value + w.xy_offset.get(word, 0.0)
         # Z: in "bed" mode the machine zero is at the TOP, so height above
-        # the plane inverts: absolute -> offset - z, relative -> -dz
+        # the plane inverts: absolute -> plane_offset - z, relative -> -dz.
+        # The plane offset belongs to the ACTIVE TOOL (schema v2) — _route_axis
+        # has already resolved it before any Z reaches this point.
         if w.z_mode == "bed":
-            assert w.z_bed_offset_mm is not None  # enforced by profile validation
-            return -value if relative else w.z_bed_offset_mm - value
+            tool = self.profile.tool(self.state.active_tool)  # set by _route_axis
+            assert tool is not None and tool.plane_offset_mm is not None
+            return -value if relative else tool.plane_offset_mm - value
         return value
 
     def _feed_for(self, code: int, line: GcodeLine,
@@ -347,8 +350,8 @@ class GcodeInterpreter:
                 self._missing_axis(f"tool T{tool_index} has no z_axis mapped",
                                    line_no, result)
                 return None
-        if name not in self.profile.motion.axis_map:
-            self._missing_axis(f"axis {name!r} is not in motion.axis_map",
+        if not self.profile.has_axis(name):
+            self._missing_axis(f"axis {name!r} is not a configured axis",
                                line_no, result)
             return None
         return name

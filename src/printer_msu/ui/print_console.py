@@ -210,8 +210,8 @@ class PrintConsoleWindow(QMainWindow):
             return
         self.profile_edit.setText(path)
         self.profile_label.setText(
-            f"{self.profile.profile_name} — mode: {self.profile.motion.mode}, "
-            f"axes: {', '.join(self.profile.motion.axis_map)}")
+            f"{self.profile.profile_name} — mode: {self.profile.mode_label}, "
+            f"axes: {', '.join(self.profile.axis_names)}")
         self._log(f"profile loaded: {self.profile.profile_name}")
         self._update_buttons()
 
@@ -332,7 +332,7 @@ class PrintConsoleWindow(QMainWindow):
             self.adapter = result
             self.conn_label.setText("connected")
             self._log("controller connected")
-            interval = 0.2 if self.profile.motion.mode == "sim" else 0.5
+            interval = 0.2 if self.profile.is_sim else 0.5
             self.poller = StatusPoller(self.adapter, interval_s=interval,
                                        parent=self)
             self.poller.status.connect(self._on_status)
@@ -375,7 +375,7 @@ class PrintConsoleWindow(QMainWindow):
             home_first=self.home_first_check.isChecked())
         self.runner.subscribe(self.bridge.dispatch)
         self.progress_bar.setValue(0)
-        self._log(f"job {job_id} starting ({self.profile.motion.mode} mode)")
+        self._log(f"job {job_id} starting ({self.profile.mode_label} mode)")
         self.runner.start()
 
     # ------------------------------------------------------------ job events

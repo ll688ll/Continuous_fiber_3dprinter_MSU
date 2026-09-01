@@ -102,7 +102,7 @@ def run_preflight(profile: MachineProfile, adapter,
                     first_move.setdefault(axis, i)
             elif isinstance(action, HomeAxes):
                 covered = action.axes if action.axes is not None \
-                    else tuple(profile.motion.axis_map)
+                    else profile.axis_names
                 for axis in covered:
                     first_home.setdefault(axis, i)
         for axis, move_idx in sorted(first_move.items()):
@@ -152,7 +152,7 @@ def _check_envelope(profile: MachineProfile, adapter,
     for action in result.actions:
         if isinstance(action, HomeAxes):
             covered = (action.axes if action.axes is not None
-                       else tuple(profile.motion.axis_map))
+                       else profile.axis_names)
             for axis in covered:
                 lo_hi = limits.get(axis)
                 # approximation: homing parks near the low end (clearance)
@@ -417,7 +417,7 @@ class PrintJobRunner:
         """Tool Z axes first (SRS D11: they home NEGATIVE = physically UP,
         clearing the print plane before X/Y travel), then the others."""
         selected = list(axes) if axes is not None \
-            else list(self.profile.motion.axis_map)
+            else list(self.profile.axis_names)
         z_axes = {t.z_axis for t in self.profile.tools if t.z_axis}
         return ([a for a in selected if a in z_axes]
                 + [a for a in selected if a not in z_axes])
@@ -521,7 +521,7 @@ class PrintJobRunner:
             "gcode_path": str(self.gcode_path),
             "gcode_sha256": gcode_sha,
             "profile": self.profile.to_dict(),
-            "mode": self.profile.motion.mode,
+            "mode": self.profile.mode_label,
             "started_at": self._started_at,
             "finished_at": self._finished_at,
             "end_reason": end_reason,

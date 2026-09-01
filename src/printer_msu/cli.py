@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Optional, Sequence
 
-from .config.profile import MachineProfile, load_profile
+from .config.profile import CONTROLLER_FMC, MachineProfile, load_profile
 from .core.gcode.analysis import analyze
 from .core.gcode.interpreter import interpret
 from .core.gcode.parser import parse_file
@@ -41,10 +41,22 @@ EXIT_USAGE = 3
 
 def _load_profile(args) -> MachineProfile:
     profile = load_profile(args.profile)
-    if getattr(args, "mode", None) and args.mode != profile.motion.mode:
-        profile = dataclasses.replace(
-            profile,
-            motion=dataclasses.replace(profile.motion, mode=args.mode))
+    if getattr(args, "mode", None):
+        if profile.motion is None:
+            raise PrinterError(
+                "--mode only applies to fmc_motion profiles; this profile's "
+                "motion controller is "
+                f"{profile.motion_controller.type!r}")
+        if args.mode != profile.motion.mode:
+            controllers = tuple(
+                dataclasses.replace(
+                    c, connection={**dict(c.connection), "mode": args.mode})
+                if c.type == CONTROLLER_FMC else c
+                for c in profile.controllers)
+            profile = dataclasses.replace(
+                profile,
+                controllers=controllers,
+                motion=dataclasses.replace(profile.motion, mode=args.mode))
     return profile
 
 
@@ -139,7 +151,7 @@ def _cmd_print(args) -> int:
                                 home_first=args.home_first)
         runner.subscribe(_ConsoleProgress(job_id))
         print(f"[{job_id}] {profile.profile_name} "
-              f"({profile.motion.mode}) - Ctrl-C stops, twice = e-stop")
+              f"({profile.mode_label}) - Ctrl-C stops, twice = e-stop")
         runner.start()
         _run_print_with_interrupts(runner)
         return EXIT_OK if runner.state is PrintJobState.COMPLETED else EXIT_FAILED

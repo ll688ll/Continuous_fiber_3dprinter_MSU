@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "profile_name": "printer_msu sim (schema v2)",
+  "controllers": [
+    {
+      "id": "fmc",
+      "type": "fmc_motion",
+      "connection": {"config": "sim_machine.json", "mode": "sim"}
+    }
+  ],
+  "axes": [
+    {"name": "X", "controller": "fmc", "channel": 0},
+    {"name": "Y", "controller": "fmc", "channel": 1},
+    {"name": "Z_T0", "controller": "fmc", "channel": 2}
+  ],
+  "tools": [
+    {"tool_index": 0, "z_axis": "Z_T0", "plane_offset_mm": 250.0}
+  ],
+  "gcode": {
+    "default_tool": 0,
+    "default_feed_mm_min": 1200.0,
+    "travel_feed_mm_min": 3000.0
+  },
+  "workspace": {
+    "xy_offset": {"X": 30.0, "Y": 30.0},
+    "z_mode": "bed"
+  },
+  "policies": {}
+}
