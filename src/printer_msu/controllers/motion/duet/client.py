@@ -23,6 +23,8 @@ from __future__ import annotations
 import errno
 import http.client
 import json
+import socket
+import struct
 import threading
 import time
 import urllib.error
@@ -76,8 +78,33 @@ class _KeepAliveTransport:
         self._conn: Optional[http.client.HTTPConnection] = None
         self._netloc: Optional[str] = None
 
+    @staticmethod
+    def _arm_linger_rst(conn: object) -> None:
+        """SO_LINGER(1, 0): make close() send RST instead of FIN, so OUR side
+        never enters TIME_WAIT and its port is instantly reusable.
+
+        Why: RRF refuses keep-alive, so every request burns a connection;
+        Windows allocates ephemeral ports sequentially, and once the counter
+        wraps into a contiguous run of our own TIME_WAIT sockets, every
+        retry collides too (job-20260831-231737 died at 39% this way).
+        Safe because the response is fully read before any close, and the
+        server is discarding the connection anyway.
+
+        MUST be armed right after the request is sent: CPython's http.client
+        closes the socket INSIDE getresponse() when the server sends
+        Connection: close, so arming at our own close() is too late — that
+        was the first, ineffective version of this fix."""
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                struct.pack("ii", 1, 0))
+            except (OSError, AttributeError):
+                pass
+
     def close(self) -> None:
         if self._conn is not None:
+            self._arm_linger_rst(self._conn)
             try:
                 self._conn.close()
             except Exception:
@@ -85,11 +112,11 @@ class _KeepAliveTransport:
             self._conn = None
 
     #: EADDRINUSE/WinError 10048 happens at CONNECT time (local port bind
-    #: collided with one of our own TIME_WAIT sockets to the same board) —
-    #: nothing was transmitted, so retrying is safe for EVERY request kind,
-    #: rr_gcode included. Windows allocates ephemeral ports sequentially,
-    #: so the very next attempt lands on a free port.
-    ADDR_IN_USE_RETRIES = 5
+    #: collided with a TIME_WAIT socket to the same board) — nothing was
+    #: transmitted, so retrying is safe for EVERY request kind, rr_gcode
+    #: included. With linger-0 closes (see close()) collisions should be
+    #: rare; the generous retry budget covers sockets closed by other paths.
+    ADDR_IN_USE_RETRIES = 8
 
     @staticmethod
     def _is_addr_in_use(exc: OSError) -> bool:
@@ -116,6 +143,9 @@ class _KeepAliveTransport:
             try:
                 conn.request("POST" if data is not None else "GET",
                              target, body=data)
+                # arm BEFORE getresponse(): http.client closes the socket in
+                # there when the server sends Connection: close
+                self._arm_linger_rst(conn)
                 resp = conn.getresponse()
                 body = resp.read()
                 if resp.status != 200:
