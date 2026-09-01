@@ -20,6 +20,8 @@ All methods raise ``DuetError`` subclasses; transport problems surface as
 
 from __future__ import annotations
 
+import errno
+import http.client
 import json
 import threading
 import time
@@ -53,12 +55,90 @@ class DuetLineTooLong(DuetError):
     """A single G-code line cannot ever fit the board's input buffer."""
 
 
-def _default_opener(url: str, data: Optional[bytes], timeout: float) -> bytes:
-    with urllib.request.urlopen(url, data=data, timeout=timeout) as resp:
-        status = getattr(resp, "status", 200)
-        if status != 200:
-            raise DuetConnectionError(f"HTTP {status} from {url}")
-        return resp.read()
+class _KeepAliveTransport:
+    """Default opener: ONE persistent HTTP connection, reused for every
+    request.
+
+    A connection-per-request (urllib.urlopen) exhausts Windows ephemeral
+    ports under stream-mode buffer polling: every closed socket lingers in
+    TIME_WAIT, and WinError 10048 killed a streamed print 17 actions in
+    (job-20260831-230939).
+
+    Reconnect policy: if a request fails on a REUSED socket, the cause is
+    almost always a stale keep-alive the server closed — reconnect once and
+    retry. A failure on a freshly connected socket propagates (the caller's
+    idempotent-read retry policy decides). This mirrors what mature HTTP
+    libraries do, and keeps the no-blind-resend rule for rr_gcode: a fresh
+    connection failing mid-request is never retried here.
+    """
+
+    def __init__(self) -> None:
+        self._conn: Optional[http.client.HTTPConnection] = None
+        self._netloc: Optional[str] = None
+
+    def close(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    #: EADDRINUSE/WinError 10048 happens at CONNECT time (local port bind
+    #: collided with one of our own TIME_WAIT sockets to the same board) —
+    #: nothing was transmitted, so retrying is safe for EVERY request kind,
+    #: rr_gcode included. Windows allocates ephemeral ports sequentially,
+    #: so the very next attempt lands on a free port.
+    ADDR_IN_USE_RETRIES = 5
+
+    @staticmethod
+    def _is_addr_in_use(exc: OSError) -> bool:
+        return (getattr(exc, "winerror", None) == 10048
+                or exc.errno == errno.EADDRINUSE)
+
+    def __call__(self, url: str, data: Optional[bytes], timeout: float) -> bytes:
+        parsed = urllib.parse.urlsplit(url)
+        target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        stale_retry_used = False
+        addr_retries = 0
+        while True:
+            reused = (self._conn is not None and self._netloc == parsed.netloc
+                      and self._conn.sock is not None)
+            if self._conn is None or self._netloc != parsed.netloc:
+                self.close()
+                self._conn = http.client.HTTPConnection(parsed.netloc,
+                                                        timeout=timeout)
+                self._netloc = parsed.netloc
+            conn = self._conn
+            conn.timeout = timeout
+            if conn.sock is not None:
+                conn.sock.settimeout(timeout)
+            try:
+                conn.request("POST" if data is not None else "GET",
+                             target, body=data)
+                resp = conn.getresponse()
+                body = resp.read()
+                if resp.status != 200:
+                    raise DuetConnectionError(f"HTTP {resp.status} from {url}")
+                # RRF (3.6 standalone, measured) sends Connection: close on
+                # every response — drop the socket now so the next request
+                # takes the clean fresh-connect path instead of failing once
+                if getattr(resp, "will_close", False):
+                    self.close()
+                return body
+            except DuetConnectionError:
+                raise
+            except (http.client.HTTPException, OSError) as exc:
+                self.close()
+                if (isinstance(exc, OSError) and self._is_addr_in_use(exc)
+                        and addr_retries < self.ADDR_IN_USE_RETRIES):
+                    addr_retries += 1
+                    time.sleep(0.05 * addr_retries)
+                    continue
+                if reused and not stale_retry_used:
+                    stale_retry_used = True  # stale keep-alive: retry fresh
+                    continue
+                raise
 
 
 class DuetClient:
@@ -74,10 +154,16 @@ class DuetClient:
         self.base = f"http://{host}"
         self._password = password
         self._timeout = timeout_s
-        self._opener: Opener = opener or _default_opener
+        self._opener: Opener = opener or _KeepAliveTransport()
         self._lock = threading.RLock()
         #: last known free buffer space; fail-closed (0) on parse trouble
         self.avail = BUFF_TOTAL
+
+    def close(self) -> None:
+        """Drop the persistent connection (no-op for injected openers)."""
+        close = getattr(self._opener, "close", None)
+        if close is not None:
+            close()
 
     # -------------------------------------------------------------- plumbing
     def _request(self, path: str, data: Optional[bytes] = None,
@@ -167,7 +253,10 @@ class DuetClient:
         while self.avail < need:
             if time.monotonic() > end:
                 return False
-            time.sleep(0.02)
+            # 0.1 s: the board consumes ~4-5 lines/s (~1 line / 200 ms), so
+            # 10 polls/s never starves it; 50/s (0.02) needlessly hammered
+            # the link and helped exhaust Windows ephemeral ports
+            time.sleep(0.1)
             reply = self._get_json("/rr_gcode?gcode=")
             try:
                 self.avail = int(reply.get("buff"))

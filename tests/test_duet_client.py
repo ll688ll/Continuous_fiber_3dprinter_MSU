@@ -129,3 +129,140 @@ def test_download_missing_file_raises():
     client.connect()
     with pytest.raises(DuetConnectionError):
         client.download("/sys/nope.g")
+
+
+# --------------------------------- keep-alive transport (WinError 10048 fix)
+class _StubResponse:
+    def __init__(self, body=b'{"err":0}'):
+        self.status = 200
+        self._body = body
+
+    def read(self):
+        return self._body
+
+
+class _StubConn:
+    """Stands in for http.client.HTTPConnection."""
+
+    instances = []
+
+    def __init__(self, netloc, timeout=None):
+        self.netloc = netloc
+        self.timeout = timeout
+        self.sock = None
+        self.requests = []
+        self.fail_next = 0
+        _StubConn.instances.append(self)
+
+    def request(self, method, target, body=None):
+        if self.fail_next:
+            self.fail_next -= 1
+            raise ConnectionResetError("stale keep-alive")
+        self.sock = object.__new__(_FakeSock)
+        self.requests.append((method, target))
+
+    def getresponse(self):
+        return _StubResponse()
+
+    def close(self):
+        self.sock = None
+
+
+class _FakeSock:
+    def settimeout(self, t):
+        pass
+
+
+@pytest.fixture()
+def stub_transport(monkeypatch):
+    from printer_msu.controllers.motion.duet import client as client_mod
+
+    _StubConn.instances = []
+    monkeypatch.setattr(client_mod.http.client, "HTTPConnection", _StubConn)
+    return client_mod._KeepAliveTransport()
+
+
+def test_transport_reuses_one_connection(stub_transport):
+    for _ in range(5):
+        stub_transport("http://board/rr_model?key=state.status", None, 5.0)
+    assert len(_StubConn.instances) == 1
+    assert len(_StubConn.instances[0].requests) == 5
+
+
+def test_transport_retries_once_on_stale_reused_socket(stub_transport):
+    stub_transport("http://board/rr_reply", None, 5.0)  # establishes reuse
+    _StubConn.instances[0].fail_next = 1
+    body = stub_transport("http://board/rr_reply", None, 5.0)
+    assert body == b'{"err":0}'
+    assert len(_StubConn.instances) == 2  # reconnected on a fresh conn
+
+
+def test_transport_does_not_retry_fresh_connection_failures(stub_transport):
+    # a failure on the FIRST use of a connection is not a stale keep-alive:
+    # never blind-resend (rr_gcode could double-execute)
+    _StubConn.instances.clear()
+
+    class _AlwaysFail(_StubConn):
+        def request(self, method, target, body=None):
+            raise ConnectionRefusedError("board down")
+
+    from printer_msu.controllers.motion.duet import client as client_mod
+    transport = client_mod._KeepAliveTransport()
+    client_mod.http.client.HTTPConnection = _AlwaysFail
+    try:
+        with pytest.raises(ConnectionRefusedError):
+            transport("http://board/rr_gcode?gcode=G1", None, 5.0)
+    finally:
+        client_mod.http.client.HTTPConnection = _StubConn
+
+
+def test_transport_closes_when_server_says_connection_close(stub_transport):
+    _StubResponse_orig_read = _StubResponse.read
+
+    class _CloseResponse(_StubResponse):
+        will_close = True
+
+    _StubConn.instances.clear()
+    conn_holder = _StubConn.instances
+
+    def getresponse_close(self):
+        return _CloseResponse()
+
+    orig = _StubConn.getresponse
+    _StubConn.getresponse = getresponse_close
+    try:
+        stub_transport("http://board/rr_reply", None, 5.0)
+        stub_transport("http://board/rr_reply", None, 5.0)
+    finally:
+        _StubConn.getresponse = orig
+    # two fresh connections, but ZERO failed attempts in between
+    assert len(conn_holder) == 2
+    assert all(len(c.requests) == 1 for c in conn_holder)
+
+
+def test_transport_retries_addr_in_use_even_on_fresh_connection(stub_transport):
+    """WinError 10048 = local port collision at CONNECT time; nothing was
+    sent, so it is retried even for rr_gcode (job-20260831-230939 fix)."""
+    _StubConn.instances.clear()
+
+    class _CollidingConn(_StubConn):
+        collisions = 2
+
+        def request(self, method, target, body=None):
+            if _CollidingConn.collisions:
+                _CollidingConn.collisions -= 1
+                err = OSError("port collision")
+                err.winerror = 10048
+                err.errno = None
+                raise err
+            super().request(method, target, body)
+
+    from printer_msu.controllers.motion.duet import client as client_mod
+    client_mod.http.client.HTTPConnection = _CollidingConn
+    try:
+        transport = client_mod._KeepAliveTransport()
+        body = transport("http://board/rr_gcode?gcode=G1 X5", None, 5.0)
+        assert body == b'{"err":0}'
+        assert _CollidingConn.collisions == 0
+    finally:
+        client_mod.http.client.HTTPConnection = _StubConn
