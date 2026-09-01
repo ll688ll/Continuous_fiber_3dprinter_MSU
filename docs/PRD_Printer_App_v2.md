@@ -111,9 +111,14 @@ refusal lives host-side in the adapter, the board's clamp is the backstop.
    refusal in `DuetMotionAdapter._check_soft_limits` (absolute + relative
    jogs), fake board now clamps like the real one, 3 regression tests.
    **Re-run the script once to see step 4 pass.**
-2. One-time `config.g` edit: replace the axis sections with
-   `M98 P"/sys/msu_machine.g"`, then `printer-msu apply-config
-   --profile configs/duet_lab.json` and verify the drift check reads clean.
+2. ~~One-time `config.g` edit~~ **DONE 2026-08-30** via
+   `firmware/duet3_6xd/migrate_config_include.py`: card config.g verified
+   against git HEAD, backed up (`/sys/config.g.premsu.bak` + test-records),
+   generated `/sys/msu_machine.g` (784 B) uploaded first, include-style
+   config.g (4336 B) second, both byte-verified via the new
+   `DuetClient.download`; M999 reboot (23.5 s) and the **connect drift check
+   read CLEAN** — the profile now drives the board config (D6 realized).
+   Also: second shakeout run all-6-steps PASS (envelope refused host-side).
 3. `printer-msu print CE5_pill_box_insert.gcode --profile duet_lab.json`
    mid-air: expect ≈ **2148 s** from `job.duration` (the regression number);
    `--execution stream` once (≈ +1.2 %).

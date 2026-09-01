@@ -191,6 +191,13 @@ class DuetClient:
                 f"rr_upload {board_path} failed (err={err}) — CRC mismatch or "
                 f"SD trouble; nothing was applied")
 
+    def download(self, board_path: str) -> bytes:
+        """Fetch a file from the board (rr_download). Used to verify uploads
+        byte-exact and to back up card files before changing them."""
+        return self._request("/rr_download?name="
+                             + urllib.parse.quote(board_path),
+                             retries=self.READ_RETRIES)
+
     def filelist(self, dirname: str) -> list[dict]:
         reply = self._get_json(
             "/rr_filelist?dir=" + urllib.parse.quote(dirname),

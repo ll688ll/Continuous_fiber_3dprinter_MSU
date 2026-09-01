@@ -91,6 +91,11 @@ class ScriptedDuetBoard:
         if path == "/rr_upload":
             return self._upload(query.get("name", [""])[0],
                                 query.get("crc32", [""])[0], data or b"")
+        if path == "/rr_download":
+            name = query.get("name", [""])[0]
+            if name not in self.files:
+                raise urllib.error.URLError(f"no such file {name}")
+            return self.files[name]
         if path == "/rr_filelist":
             names = [{"type": "f", "name": n.rsplit("/", 1)[-1]}
                      for n in self.files]

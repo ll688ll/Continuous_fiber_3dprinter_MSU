@@ -51,58 +51,25 @@ M569 P0 S1 R1 T5:5:10:10         ; X
 M569 P1 S1 R1 T5:5:10:10         ; Y
 M569 P2 S1 R1 T5:5:10:10         ; Z_T0
 
-M584 X0 Y1 Z2                    ; CAUTION: M584 resets axis positions AND
-                                 ; clears M574 endstop config. Always set
-                                 ; M584 BEFORE M574, never after.
-
-; --- Scale ----------------------------------------------------------------
-; Delta electronic gear P1-45 = 5000 -> 5000 pulses/rev on every drive.
-;   X, Y: 35 mm ballscrew lead -> 5000/35 = 142.857 steps/mm
-;   Z_T0: 10 mm lead           -> 5000/10 = 500     steps/mm
-; Verified against step counts on hardware: Z moved exactly 10000 steps for
-; 20.000 mm. Matches the FMC's own lead/div parameters.
-M92 X142.857 Y142.857 Z500
-
-; --- Motion limits --------------------------------------------------------
-; MEASURED ON HARDWARE 2026-08-25, stepped up in three stages per axis with
-; M122 checked at each: zero hiccups, zero late steps, zero underruns, exact
-; position return, no Delta alarm. Conservative vs the FMC's 225 mm/s / 1125.
+; --- Axes, scale, limits, endstops: GENERATED from the machine profile -----
+; Since 2026-08-30 (printer_msu v2, decision D6) the axis configuration lives
+; in configs/duet_lab.json and is generated into /sys/msu_machine.g by
+;   printer-msu apply-config --profile configs/duet_lab.json
+; The include carries: one M584 (first - it resets datums and clears M574),
+; M92, M566, M203, M201, M208 min+max, M574 endstops. Edit the PROFILE, never
+; the generated file; every connect cross-checks board vs profile (drift check).
 ;
-; Z's ceiling is a PULSE-RATE limit, not a mechanical one: at 500 steps/mm,
-; 100 mm/s is already 50 kHz against the T5:5 100 kHz ceiling, so Z's absolute
-; maximum is 200 mm/s. X/Y at 142.857 steps/mm would not hit it until 700 mm/s.
-M566 X480 Y480 Z120              ; jerk, mm/min (8, 8, 2 mm/s). X/Y match the
-                                 ; M205 X8 Y8 in the reference Cura file.
-M203 X12000 Y12000 Z6000         ; max speed, mm/min (200, 200, 100 mm/s)
-M201 X1000 Y1000 Z800            ; acceleration, mm/s^2
-
-; Spans measured on the FMC at true scale, 2026-08-13.
-M208 X0 Y0 Z0 S1                 ; minima
-M208 X987.448 Y290.269 Z282.306 S0
-
-; NOTE: M350 (microstepping) and M906 (current) do NOT apply on the 6XD. Both
-; live in the Delta drive.
-
-; --- Endstops -------------------------------------------------------------
-; NPN proximity sensors, 24 V. Brown -> +24 V, Blue -> external 0 V AND Duet
-; GND (the common ground is mandatory for an NPN output to sink), Black -> the
-; input pin. All three are minimum/home switches (SRS D11).
-;
-; The "!" is correct and confirmed: MB6XD non-isolated inputs carry a permanent
-; 27K pullup to +3.3 V, so an NPN output idles HIGH and pulls LOW when
-; triggered. Released reads "not stopped".
-;
-; DO NOT USE io0.in ON THIS BOARD. It is physically the same pin as serial0.rx
-; (PanelDue UART). RRF accepts an endstop there and reports the pin as
-; "!(io0.in,serial0.rx)", but with the UART enabled the receiver consumes the
-; sensor's edges and the endstop reads garbage - it sits in one state, later
-; sits in the other, and never appears to transition. The tell is M122's
-; "Aux0 errors" counter climbing. M575 has no off switch (S-1 is rejected),
-; so the cure is to never enable it. Hence no M575 in this file, and the X
-; sensor lives on io3.in.
-M574 X1 S1 P"!io3.in"
-M574 Y1 S1 P"!io4.in"
-M574 Z1 S1 P"!io5.in"
+; Wiring/measurement rationale (leads, ceilings, NPN endstop wiring) lives in
+; firmware/duet3_6xd/README.md and the profile. Two warnings that must outlive
+; any regeneration:
+;   - DO NOT USE io0.in for anything. It is physically the same pin as
+;     serial0.rx; with the UART enabled the receiver eats the sensor's edges
+;     and the endstop reads garbage (tell: M122 "Aux0 errors" climbing).
+;     M575 has no off switch, so it stays absent from this file. The profile
+;     validator hard-rejects io0.in.
+;   - M350/M906 do NOT apply on the 6XD; microstepping and current live in
+;     the Delta drives (P1-45 = 5000).
+M98 P"/sys/msu_machine.g"
 
 ; M564 stays at its DEFAULTS: no movement before homing, none outside limits.
 ; G1 H1 (move-until-endstop) and G1 H2 (raw motor move) both bypass that on

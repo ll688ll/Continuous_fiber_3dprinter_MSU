@@ -112,3 +112,20 @@ def test_send_never_retries_gcode():
     with pytest.raises(DuetConnectionError):
         client.send("G1 X5 F600")
     assert board.command_log == []  # exactly zero executions, not two
+
+
+def test_download_round_trips_upload():
+    board = ScriptedDuetBoard()
+    client = DuetClient("fake", opener=board)
+    client.connect()
+    payload = b"M92 X142.857\nM208 X987.448 S0\n"
+    client.upload("/sys/msu_machine.g", payload)
+    assert client.download("/sys/msu_machine.g") == payload
+
+
+def test_download_missing_file_raises():
+    board = ScriptedDuetBoard()
+    client = DuetClient("fake", opener=board)
+    client.connect()
+    with pytest.raises(DuetConnectionError):
+        client.download("/sys/nope.g")
