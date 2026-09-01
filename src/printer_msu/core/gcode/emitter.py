@@ -25,6 +25,8 @@ from ...core.model.actions import (
     MoveLinear,
     PauseProgram,
     SelectTool,
+    SetFanSpeed,
+    SetToolTemp,
     SkippedCommand,
 )
 from ...errors import PrinterError
@@ -99,6 +101,12 @@ def emit_machine_gcode(actions: list[Action],
     emit(f"; printer_msu job for profile {profile.profile_name!r}")
     emit("G21")
     emit("G90")
+    if any(isinstance(a, MoveLinear) and a.e_delta is not None
+           for a in actions):
+        emit("M83")  # extrusion is emitted as relative deltas, always
+
+    board_tools = {t.tool_index for t in profile.tools
+                   if t.extruder or t.heater or t.fan}
 
     for action in actions:
         if isinstance(action, SkippedCommand):
@@ -109,6 +117,9 @@ def emit_machine_gcode(actions: list[Action],
                 relative = action.relative
             words = " ".join(
                 f"{letter(a)}{_fmt(v)}" for a, v in action.axes.items())
+            if action.e_delta is not None:
+                words = (words + " " if words else "") + \
+                    f"E{_fmt(action.e_delta)}"
             code = "G0" if action.rapid else "G1"
             emit(f"{code} {words} F{_fmt(action.feed_mm_s * 60.0)}",
                  action.line_no)
@@ -139,10 +150,26 @@ def emit_machine_gcode(actions: list[Action],
                 program.final_targets.pop(a, None)
         elif isinstance(action, PauseProgram):
             emit(f"M226 ; pause ({action.reason})", action.line_no)
-        elif isinstance(action, SelectTool):
-            # becomes a real Tn when the board defines tools (V2-M4)
-            emit(f"; T{action.tool_index} (tool controller pending)",
+        elif isinstance(action, SetToolTemp):
+            code = "M109" if action.wait else "M104"
+            emit(f"{code} T{action.tool_index} S{_fmt(action.temp_c)}",
                  action.line_no)
+        elif isinstance(action, SetFanSpeed):
+            tool_cfg = profile.tool(action.tool_index)
+            fan_index = tool_cfg.fan.fan_index if tool_cfg and tool_cfg.fan \
+                else 0
+            if action.value <= 0.0:
+                emit(f"M107 P{fan_index}", action.line_no)
+            else:
+                emit(f"M106 P{fan_index} S{_fmt(action.value)}",
+                     action.line_no)
+        elif isinstance(action, SelectTool):
+            if action.tool_index in board_tools:
+                emit(f"T{action.tool_index}", action.line_no)
+            else:
+                # tool has no board-side hardware yet: informational only
+                emit(f"; T{action.tool_index} (no tool hardware configured)",
+                     action.line_no)
         elif isinstance(action, EndProgram):
             emit("; end of program", action.line_no)
         else:  # pragma: no cover - defensive

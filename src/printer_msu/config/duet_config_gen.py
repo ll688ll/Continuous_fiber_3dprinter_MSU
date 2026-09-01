@@ -48,6 +48,7 @@ def generate_machine_g(profile: MachineProfile) -> str:
         t for t in profile.tools
         if (t.extruder is not None and t.extruder.controller in duet_ids)
         or (t.heater is not None and t.heater.controller in duet_ids)
+        or (t.fan is not None and t.fan.controller in duet_ids)
     ]
     extruders = [t.extruder for t in profile.tools
                  if t.extruder is not None and t.extruder.controller in duet_ids]
@@ -119,11 +120,16 @@ def generate_machine_g(profile: MachineProfile) -> str:
                          f"T{s.sensor_index}")
             lines.append(f"M143 H{heater.heater_index} "
                          f"S{_fmt(heater.max_temp_c)} ; hard temp ceiling")
+        if tool.fan is not None:
+            lines.append(f'M950 F{tool.fan.fan_index} '
+                         f'C"{tool.fan.output_pin}"')
         m563 = f"M563 P{tool.tool_index}"
         if tool.extruder is not None:
             m563 += f" D{extruders.index(tool.extruder)}"
         if heater is not None:
             m563 += f" H{heater.heater_index}"
+        if tool.fan is not None:
+            m563 += f" F{tool.fan.fan_index}"
         lines.append(m563)
         if heater is not None:
             lines.append(f"M568 P{tool.tool_index} R0 S0 ; defined cold")

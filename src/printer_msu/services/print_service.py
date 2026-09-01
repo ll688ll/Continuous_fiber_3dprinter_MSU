@@ -468,6 +468,12 @@ class PrintJobRunner:
                 + [a for a in selected if a not in z_axes])
 
     def _execute_move(self, move: MoveLinear) -> None:
+        if move.e_delta is not None:
+            # defensive: e_delta only exists when a tool has an extruder, and
+            # extrusion sync needs the board's planner (gcode_file execution)
+            raise JobError(
+                "extrusion actions cannot run on the per-move dispatch path; "
+                "put the extruder on the Duet controller")
         positions = self._current_positions()
         if move.relative:
             targets = {a: positions[a] + d for a, d in move.axes.items()}

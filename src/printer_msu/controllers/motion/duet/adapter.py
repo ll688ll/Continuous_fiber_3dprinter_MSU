@@ -65,6 +65,9 @@ class DuetMotionAdapter(BaseMotionController):
         self._connected = False
         #: config drift found at connect; preflight applies policies.config_drift
         self.drift_findings: list[str] = []
+        #: set by build_machine when the profile has duet tool hardware;
+        #: full_status() then carries a "tools" block for the UI poller
+        self.tool_controller = None
 
     @property
     def client(self) -> DuetClient:
@@ -156,8 +159,14 @@ class DuetMotionAdapter(BaseMotionController):
                 "busy": moving,
                 "fault": None,
             }
-        return {"axes": axes, "estop": status == _HALTED,
-                "connected": self._connected}
+        out = {"axes": axes, "estop": status == _HALTED,
+               "connected": self._connected}
+        if self.tool_controller is not None:
+            try:
+                out["tools"] = dict(self.tool_controller.temperatures_dict())
+            except Exception:  # a failed temp read must not kill the poller
+                logger.exception("tool status read failed")
+        return out
 
     def homed_axes(self) -> set[str]:
         return {self._name_of[ax.get("letter")]

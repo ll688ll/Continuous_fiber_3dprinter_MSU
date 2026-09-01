@@ -101,6 +101,13 @@ class HeaterDef:
 
 
 @dataclass(frozen=True)
+class FanDef:
+    controller: str
+    fan_index: int
+    output_pin: str          # RRF M950 C value, e.g. "out7"
+
+
+@dataclass(frozen=True)
 class ExtruderDef:
     controller: str
     channel: int
@@ -120,6 +127,7 @@ class ToolConfig:
     plane_offset_mm: Optional[float] = None
     extruder: Optional[ExtruderDef] = None
     heater: Optional[HeaterDef] = None
+    fan: Optional[FanDef] = None
 
 
 # ---------------------------------------------------- v1 compatibility view
@@ -293,6 +301,10 @@ class MachineProfile:
                                           "type": h.sensor.type,
                                           "port": h.sensor.port},
                                "max_temp_c": h.max_temp_c}
+            if t.fan is not None:
+                d["fan"] = {"controller": t.fan.controller,
+                            "fan_index": t.fan.fan_index,
+                            "output_pin": t.fan.output_pin}
             return d
 
         return {
@@ -530,10 +542,20 @@ def _parse_tool(raw: Mapping[str, Any], axes: Mapping[str, AxisDef],
                                  f"{ctx}.heater.max_temp_c"),
         )
 
+    fan = None
+    if raw.get("fan") is not None:
+        f = raw["fan"]
+        f_ctrl = _require(f, "controller", f"{ctx}.fan")
+        if f_ctrl not in controllers:
+            raise ProfileError(f"{ctx}.fan: controller {f_ctrl!r} not defined")
+        fan = FanDef(controller=f_ctrl,
+                     fan_index=int(_require(f, "fan_index", f"{ctx}.fan")),
+                     output_pin=str(_require(f, "output_pin", f"{ctx}.fan")))
+
     plane = (float(raw["plane_offset_mm"])
              if raw.get("plane_offset_mm") is not None else None)
     return ToolConfig(tool_index=idx, z_axis=z_axis, plane_offset_mm=plane,
-                      extruder=extruder, heater=heater)
+                      extruder=extruder, heater=heater, fan=fan)
 
 
 def profile_from_dict(data: Mapping[str, Any],

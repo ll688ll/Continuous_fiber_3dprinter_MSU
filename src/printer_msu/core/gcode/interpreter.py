@@ -29,6 +29,8 @@ from ...core.model.actions import (
     MoveLinear,
     PauseProgram,
     SelectTool,
+    SetFanSpeed,
+    SetToolTemp,
     SkippedCommand,
 )
 from .parser import GcodeLine
@@ -209,7 +211,19 @@ class GcodeInterpreter:
             st.extruder_mode = ExtruderMode.ABSOLUTE
         elif code == 83:
             st.extruder_mode = ExtruderMode.RELATIVE
-        elif code in _TOOL_M_CODES:
+        elif code in (104, 109):
+            self._set_tool_temp(code, line, result)
+        elif code == 105:
+            tool = self._active_tool_config(line.line_no, result, quiet=True)
+            if tool is not None and tool.heater is not None:
+                self._skip(f"M{code}", "temps come from status polling",
+                           line, result)
+            else:
+                self._skip_tool_command(f"M{code}", _TOOL_M_CODES[code],
+                                        line, result)
+        elif code in (106, 107):
+            self._set_fan(code, line, result)
+        elif code in _TOOL_M_CODES:  # pragma: no cover - none left today
             self._skip_tool_command(f"M{code}", _TOOL_M_CODES[code], line, result)
         elif code in _BENIGN_M_CODES:
             self._skip(f"M{code}", _BENIGN_M_CODES[code], line, result)
@@ -223,6 +237,7 @@ class GcodeInterpreter:
         st = self.state
         words = line.words
 
+        e_delta: Optional[float] = None
         if "E" in words:
             if words["E"] is None:
                 result.diagnostics.append(Diagnostic(
@@ -230,14 +245,21 @@ class GcodeInterpreter:
                     fatal=True))
                 return
             e = float(words["E"])
-            # track the virtual extruder so absolute-E files stay coherent
+            # normalize to a relative delta regardless of M82/M83/G92-E; the
+            # virtual extruder keeps absolute-E files coherent
             if st.extruder_mode is ExtruderMode.RELATIVE:
+                delta = e
                 st.virtual_e += e
             else:
+                delta = e - st.virtual_e
                 st.virtual_e = e
-            self._require_tool(line.line_no, result)
-            self._skip_tool_command(
-                "E", "extrusion deferred (motion-only v1)", line, result)
+            tool = self._active_tool_config(line.line_no, result)
+            if tool is not None and tool.extruder is not None:
+                e_delta = delta  # rides the move (V2-M4)
+            else:
+                self._skip_tool_command(
+                    "E", "extrusion deferred (no extruder configured)",
+                    line, result)
 
         relative = st.distance_mode is DistanceMode.RELATIVE
         targets: dict[str, float] = {}
@@ -256,11 +278,18 @@ class GcodeInterpreter:
             targets[word if word != "Z" else name] = self._to_machine(
                 word, float(words[word]), relative)
 
-        if not targets:
-            return  # feed-only / E-only line: modal state already updated
+        if not targets and e_delta is None:
+            return  # feed-only line: modal state already updated
 
         feed = self._feed_for(code, line, result)
         if feed is None:
+            return
+
+        if not targets:
+            # extrusion-only move (retract/prime, "G1 E-2 F1800")
+            result.actions.append(MoveLinear(line_no=line.line_no, axes={},
+                                             feed_mm_s=feed, relative=relative,
+                                             rapid=code == 0, e_delta=e_delta))
             return
 
         xy = {a: v for a, v in targets.items() if a in ("X", "Y")}
@@ -272,16 +301,19 @@ class GcodeInterpreter:
                     "move touches Z and XY together; split Z-first "
                     "(3-axis interpolation deferred — printer PRD §2.2)"))
                 self._warned_split = True
+            # extrusion rides the planner-synced XY component, never Z-only
             result.actions.append(MoveLinear(line_no=line.line_no, axes=z,
                                              feed_mm_s=feed, relative=relative,
                                              rapid=code == 0))
             result.actions.append(MoveLinear(line_no=line.line_no, axes=xy,
                                              feed_mm_s=feed, relative=relative,
-                                             rapid=code == 0))
+                                             rapid=code == 0,
+                                             e_delta=e_delta))
         else:
             result.actions.append(MoveLinear(line_no=line.line_no, axes=targets,
                                              feed_mm_s=feed, relative=relative,
-                                             rapid=code == 0))
+                                             rapid=code == 0,
+                                             e_delta=e_delta))
 
     def _to_machine(self, word: str, value: float, relative: bool) -> float:
         """Slicer frame -> machine frame (FR-INT-08, profile workspace)."""
@@ -323,6 +355,69 @@ class GcodeInterpreter:
             return
         self.state.active_tool = index
         result.actions.append(SelectTool(line_no=line_no, tool_index=index))
+
+    def _active_tool_config(self, line_no: int, result: InterpretResult,
+                            quiet: bool = False):
+        """The active (or default) tool's profile entry, or None."""
+        if quiet and self.state.active_tool is None:
+            return self.profile.tool(self.profile.gcode.default_tool)
+        return self.profile.tool(self._require_tool(line_no, result))
+
+    def _set_tool_temp(self, code: int, line: GcodeLine,
+                       result: InterpretResult) -> None:
+        """M104/M109 -> SetToolTemp when the target tool has a heater;
+        otherwise exactly the v1 skip/error policy (D2 stays for FMC)."""
+        tool_index: Optional[int]
+        if line.words.get("T") is not None:  # explicit M104 T<n> S...
+            tool_index = int(line.words["T"])
+            tool = self.profile.tool(tool_index)
+            if tool is None:
+                result.diagnostics.append(Diagnostic(
+                    line.line_no, f"M{code} T{tool_index}: tool is not "
+                                  f"configured", fatal=True))
+                return
+        else:
+            tool = self._active_tool_config(line.line_no, result, quiet=True)
+            tool_index = tool.tool_index if tool else None
+        if tool is None or tool.heater is None:
+            self._skip_tool_command(f"M{code}", _TOOL_M_CODES[code], line,
+                                    result)
+            return
+        s = line.words.get("S")
+        if s is None:
+            result.diagnostics.append(Diagnostic(
+                line.line_no, f"M{code} requires an S temperature",
+                fatal=True))
+            return
+        temp = float(s)
+        if temp > tool.heater.max_temp_c:
+            result.diagnostics.append(Diagnostic(
+                line.line_no,
+                f"M{code} S{temp:g} exceeds tool T{tool_index}'s max_temp_c "
+                f"{tool.heater.max_temp_c:g}", fatal=True))
+            return
+        result.actions.append(SetToolTemp(
+            line_no=line.line_no, tool_index=tool_index, temp_c=temp,
+            wait=code == 109))
+
+    def _set_fan(self, code: int, line: GcodeLine,
+                 result: InterpretResult) -> None:
+        """M106/M107 -> SetFanSpeed when the tool has a fan; else v1 policy."""
+        tool = self._active_tool_config(line.line_no, result, quiet=True)
+        if tool is None or tool.fan is None:
+            self._skip_tool_command(f"M{code}", _TOOL_M_CODES[code], line,
+                                    result)
+            return
+        if code == 107:
+            value = 0.0
+        else:
+            s = line.words.get("S")
+            # RepRap fans: S0..255 or S0..1; normalize to 0..1
+            raw = float(s) if s is not None else 255.0
+            value = raw / 255.0 if raw > 1.0 else raw
+        result.actions.append(SetFanSpeed(
+            line_no=line.line_no, tool_index=tool.tool_index,
+            value=max(0.0, min(1.0, value))))
 
     def _require_tool(self, line_no: int, result: InterpretResult) -> int:
         """Active tool, falling back to the profile default (FR-GC-023)."""

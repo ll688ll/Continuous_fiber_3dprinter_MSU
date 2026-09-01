@@ -55,8 +55,18 @@ def build_machine(profile: MachineProfile) -> Machine:
                             password=conn.get("password", ""),
                             timeout_s=float(conn.get("http_timeout_s", 20.0)))
         adapter = DuetMotionAdapter(client, profile.axes_on(owner.id))
+        tool_controllers: dict[str, object] = {}
+        if any(part is not None and part.controller == owner.id
+               for t in profile.tools
+               for part in (t.extruder, t.heater, t.fan)):
+            from .controllers.tool.duet_tool_controller import DuetToolController
+
+            tool = DuetToolController(client, profile, owner.id)
+            tool_controllers[owner.id] = tool
+            adapter.tool_controller = tool  # full_status() grows a tools block
         return Machine(profile=profile, motion=adapter,
-                       motion_controller_id=owner.id)
+                       motion_controller_id=owner.id,
+                       tool_controllers=tool_controllers)
 
     raise ProfileError(f"unknown controller type {owner.type!r}")  # unreachable
 
