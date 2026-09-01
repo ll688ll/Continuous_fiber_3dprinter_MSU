@@ -1,0 +1,142 @@
+{
+  "job_id": "job-20260831-220120",
+  "gcode_path": "C:\\Users\\jacky\\Downloads\\CE5_pill_box_insert.gcode",
+  "gcode_sha256": "4a0762b8385396bb340c25c7bc03021c73369639f8c3b171b31766fa44f699ba",
+  "profile": {
+    "schema_version": 2,
+    "profile_name": "MSU lab - Duet 3 6XD",
+    "controllers": [
+      {
+        "id": "duet",
+        "type": "duet",
+        "connection": {
+          "host": "192.168.0.40",
+          "password": "",
+          "http_timeout_s": 20.0
+        }
+      }
+    ],
+    "axes": [
+      {
+        "name": "X",
+        "controller": "duet",
+        "channel": 0,
+        "letter": "X",
+        "steps_per_mm": 142.857,
+        "max_speed_mm_s": 200.0,
+        "max_accel_mm_s2": 1000.0,
+        "jerk_mm_s": 8.0,
+        "limits_mm": [
+          0.0,
+          987.448
+        ],
+        "endstop": {
+          "end": "min",
+          "pin": "io3.in",
+          "inverted": true
+        }
+      },
+      {
+        "name": "Y",
+        "controller": "duet",
+        "channel": 1,
+        "letter": "Y",
+        "steps_per_mm": 142.857,
+        "max_speed_mm_s": 200.0,
+        "max_accel_mm_s2": 1000.0,
+        "jerk_mm_s": 8.0,
+        "limits_mm": [
+          0.0,
+          290.269
+        ],
+        "endstop": {
+          "end": "min",
+          "pin": "io4.in",
+          "inverted": true
+        }
+      },
+      {
+        "name": "Z_T0",
+        "controller": "duet",
+        "channel": 2,
+        "letter": "Z",
+        "steps_per_mm": 500.0,
+        "max_speed_mm_s": 100.0,
+        "max_accel_mm_s2": 800.0,
+        "jerk_mm_s": 2.0,
+        "limits_mm": [
+          0.0,
+          282.306
+        ],
+        "endstop": {
+          "end": "min",
+          "pin": "io5.in",
+          "inverted": true
+        },
+        "homes_up": true
+      }
+    ],
+    "tools": [
+      {
+        "tool_index": 0,
+        "z_axis": "Z_T0",
+        "plane_offset_mm": 100.0
+      }
+    ],
+    "gcode": {
+      "default_tool": 0,
+      "default_feed_mm_min": 1200.0,
+      "travel_feed_mm_min": 2400.0
+    },
+    "workspace": {
+      "xy_offset": {
+        "X": 30.0,
+        "Y": 30.0
+      },
+      "z_mode": "bed"
+    },
+    "policies": {
+      "unknown_command": "warn",
+      "tool_commands": "skip",
+      "missing_axis": "error",
+      "feed_over_max": "clamp",
+      "require_homed": true,
+      "home_before_print": false,
+      "stream_window": 4,
+      "arcs": "auto",
+      "execution": "preload",
+      "config_drift": "error"
+    }
+  },
+  "mode": "duet",
+  "started_at": "2026-09-01T02:01:20+00:00",
+  "finished_at": "2026-09-01T02:34:08+00:00",
+  "end_reason": "completed",
+  "final_state": "completed",
+  "execution": "preload",
+  "board_duration_s": 1964.0,
+  "host_duration_s": null,
+  "last_line": 11035,
+  "skipped_commands": {
+    "M140": 3,
+    "M105": 2,
+    "M190": 1,
+    "M104": 3,
+    "M109": 1,
+    "M201": 1,
+    "M203": 1,
+    "M204": 1,
+    "M205": 1,
+    "M220": 1,
+    "M221": 1,
+    "E": 4138,
+    "M107": 2,
+    "M106": 4,
+    "M84": 1
+  },
+  "warnings": [
+    "line 29: Z/E used before any Tn; assuming T0 (profile default)",
+    "line 30: move touches Z and XY together; split Z-first (3-axis interpolation deferred \u2014 printer PRD \u00a72.2)"
+  ],
+  "error": null
+}

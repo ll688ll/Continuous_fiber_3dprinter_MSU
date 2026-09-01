@@ -119,9 +119,17 @@ refusal lives host-side in the adapter, the board's clamp is the backstop.
    `DuetClient.download`; M999 reboot (23.5 s) and the **connect drift check
    read CLEAN** — the profile now drives the board config (D6 realized).
    Also: second shakeout run all-6-steps PASS (envelope refused host-side).
-3. `printer-msu print CE5_pill_box_insert.gcode --profile duet_lab.json`
-   mid-air: expect ≈ **2148 s** from `job.duration` (the regression number);
-   `--execution stream` once (≈ +1.2 %).
+3. **Mode B DONE 2026-08-31** (job-20260831-220120, record in
+   `docs/test-records/2026-08-31/`): first app-driven print COMPLETED —
+   10,043 emitted lines uploaded, run verified, end-of-job position check
+   passed, **board_duration 1964 s** (incl. the in-file G28) vs the 2148 s
+   raw-board reference. The −8.6 % is EXPLAINED, not suspicious: the
+   reference run kept the file's `M204 P500` (cura_to_msu), while the v2
+   interpreter drops M204, so the app print ran at the machine's validated
+   M201=1000 mm/s² — accel is the documented lever. **1964 s is the
+   app-path baseline going forward.** Open design choice: honour M204 as
+   modal accel (slower, obeys the file) vs keep machine accel (current).
+   `--execution stream` run still pending (expect ≈ +1.2 %).
 4. `printer-msu calibrate plane --tool 0` dry run (mid-air capture).
 5. Tool bring-up, gated (V2-M4 §hardware): cold extruder jog + steps/mm →
    thermocouple bench sanity → **HARD GATE: `Dn_ERR`→ALRM wiring
