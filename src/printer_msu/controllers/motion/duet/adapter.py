@@ -66,6 +66,11 @@ class DuetMotionAdapter(BaseMotionController):
         #: config drift found at connect; preflight applies policies.config_drift
         self.drift_findings: list[str] = []
 
+    @property
+    def client(self) -> DuetClient:
+        """The shared HTTP client (execution strategies ride the same lock)."""
+        return self._client
+
     # ------------------------------------------------------------- lifecycle
     def connect(self) -> None:
         self._client.connect()

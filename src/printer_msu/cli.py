@@ -148,7 +148,8 @@ def _cmd_print(args) -> int:
 
         runner = PrintJobRunner(profile, adapter, result, args.file,
                                 job_id=job_id, report_path=report_path,
-                                home_first=args.home_first)
+                                home_first=args.home_first,
+                                execution=getattr(args, "execution", None))
         runner.subscribe(_ConsoleProgress(job_id))
         print(f"[{job_id}] {profile.profile_name} "
               f"({profile.mode_label}) - Ctrl-C stops, twice = e-stop")
@@ -329,6 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
     prnt = sub.add_parser("print", help="stream a file to the machine")
     add_common(prnt)
     prnt.add_argument("--report", help="job report path (default logs/<job>.json)")
+    prnt.add_argument("--execution", choices=["preload", "stream"],
+                      help="Duet job execution mode (default: profile "
+                           "policies.execution; ignored on FMC)")
     prnt.set_defaults(func=_cmd_print)
 
     apply_cfg = sub.add_parser(

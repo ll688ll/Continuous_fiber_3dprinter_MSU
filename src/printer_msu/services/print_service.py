@@ -233,7 +233,8 @@ class PrintJobRunner:
                  result: InterpretResult, gcode_path: str | Path, *,
                  job_id: Optional[str] = None,
                  report_path: Optional[str | Path] = None,
-                 home_first: bool = False) -> None:
+                 home_first: bool = False,
+                 execution: Optional[str] = None) -> None:
         self.profile = profile
         self.adapter = adapter
         self.result = result
@@ -270,6 +271,24 @@ class PrintJobRunner:
         self._inflight_axes: Optional[frozenset] = None
         self._predicted: Optional[dict[str, float]] = None
         self._last_targets: Optional[dict[str, float]] = None
+
+        # execution family (V2-M3): backends that run whole programs
+        # (capabilities()["execution"] == "gcode_file", i.e. the Duet) get a
+        # dedicated executor; the per-move streaming path above stays the
+        # FMC/sim behavior, unchanged.
+        self.execution_label = "moves"
+        self.board_duration_s: Optional[float] = None
+        self.host_duration_s: Optional[float] = None
+        self._executor = None
+        try:
+            family = (adapter.capabilities() or {}).get("execution", "moves")
+        except Exception:
+            family = "moves"
+        if family == "gcode_file":
+            from .duet_execution import make_executor
+
+            self._executor = make_executor(
+                self, execution or profile.policies.execution)
 
     # ----------------------------------------------------------------- state
     @property
@@ -312,10 +331,16 @@ class PrintJobRunner:
         self._unpaused.set()
 
     def stop(self) -> None:
-        """Abort the job: preempts the in-flight move via the HAL (FR-JOB-03)."""
+        """Abort the job: preempts the in-flight move via the HAL (FR-JOB-03).
+
+        On a gcode_file backend the worker loop performs the graceful stop
+        itself (M25 pause then M0 cancel) — StopMode.IMMEDIATE would be M112
+        there, which is estop's job, not stop's."""
         logger.warning("[%s] stop requested", self.job_id)
         self._stop_requested = True
         self._unpaused.set()  # a paused job must observe the stop
+        if self._executor is not None:
+            return
         try:
             self.adapter.stop(StopMode.IMMEDIATE)
         except Exception:
@@ -342,35 +367,21 @@ class PrintJobRunner:
         self._set_state(PrintJobState.RUNNING)
         end_reason = "completed"
         try:
-            total = len(self._actions)
-            for index, action in enumerate(self._actions):
-                if self._stop_requested:
-                    end_reason = "estop" if self._estop_requested else "stopped"
-                    self._set_state(PrintJobState.STOPPED)
-                    return
-                if not self._unpaused.is_set():
-                    self._drain()  # finish in-flight moves before pausing
-                    self._hold_paused()
-                    if self._stop_requested:
-                        end_reason = "estop" if self._estop_requested else "stopped"
-                        self._set_state(PrintJobState.STOPPED)
-                        return
-                if action.line_no:
-                    self.last_line = action.line_no
-                self._emit(JobEvent(
-                    kind="progress", job_id=self.job_id,
-                    action_index=index, action_total=total,
-                    line_no=action.line_no,
-                    percent=100.0 * index / total if total else 100.0))
-                self._execute(action)
-            self._drain()
-            if self._last_targets:
-                self._verify_position(self._last_targets)
+            if self._executor is not None:
+                self._executor.run()
+                completed = True
+            else:
+                completed = self._run_action_stream()
+            if not completed:
+                end_reason = "estop" if self._estop_requested else "stopped"
+                self._set_state(PrintJobState.STOPPED)
+                return
             self._set_state(PrintJobState.COMPLETED)
-            self._emit(JobEvent(kind="progress", job_id=self.job_id,
-                                action_index=len(self._actions),
-                                action_total=len(self._actions),
-                                line_no=self.last_line, percent=100.0))
+            if self._executor is None:
+                self._emit(JobEvent(kind="progress", job_id=self.job_id,
+                                    action_index=len(self._actions),
+                                    action_total=len(self._actions),
+                                    line_no=self.last_line, percent=100.0))
         except Exception as exc:
             if self._stop_requested:
                 # the in-flight move was cancelled by stop()/estop(): not an error
@@ -387,6 +398,31 @@ class PrintJobRunner:
         finally:
             self._finished_at = _now_iso()
             self._write_report(end_reason)
+
+    def _run_action_stream(self) -> bool:
+        """The per-move dispatch loop (FMC/sim path, verbatim v1 behavior).
+        Returns False when a stop request ended the job early."""
+        total = len(self._actions)
+        for index, action in enumerate(self._actions):
+            if self._stop_requested:
+                return False
+            if not self._unpaused.is_set():
+                self._drain()  # finish in-flight moves before pausing
+                self._hold_paused()
+                if self._stop_requested:
+                    return False
+            if action.line_no:
+                self.last_line = action.line_no
+            self._emit(JobEvent(
+                kind="progress", job_id=self.job_id,
+                action_index=index, action_total=total,
+                line_no=action.line_no,
+                percent=100.0 * index / total if total else 100.0))
+            self._execute(action)
+        self._drain()
+        if self._last_targets:
+            self._verify_position(self._last_targets)
+        return True
 
     def _hold_paused(self) -> None:
         self._set_state(PrintJobState.PAUSED)
@@ -535,6 +571,9 @@ class PrintJobRunner:
             "finished_at": self._finished_at,
             "end_reason": end_reason,
             "final_state": self.state.value,
+            "execution": self.execution_label,
+            "board_duration_s": self.board_duration_s,
+            "host_duration_s": self.host_duration_s,
             "last_line": self.last_line,
             "skipped_commands": dict(self.result.skipped),
             "warnings": [f"line {d.line_no}: {d.message}"
