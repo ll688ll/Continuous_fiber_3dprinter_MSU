@@ -162,3 +162,36 @@ def test_home_failure_reported():
     adapter.connect()
     with pytest.raises(DuetError, match="not homed"):
         adapter.home(["X"])
+
+
+# ------------------------------------------------- soft limits (2026-08-30)
+def test_absolute_jog_beyond_limits_refused_host_side(rig):
+    """Hardware finding: RRF M564 S1 silently clamps to M208 instead of
+    rejecting — the loud refusal must come from the adapter."""
+    board, adapter = rig
+    adapter.home()
+    with pytest.raises(DuetError, match="outside the soft limits"):
+        adapter.move_absolute({"X": 987.448 + 50.0}, feed=20.0)
+    # nothing was sent: the axis never moved toward the limit
+    assert board.axes["X"]["machinePosition"] == pytest.approx(0.0)
+
+
+def test_relative_jog_beyond_limits_refused_host_side(rig):
+    board, adapter = rig
+    adapter.home()
+    adapter.move_absolute({"X": 980.0}, feed=200.0)
+    with pytest.raises(DuetError, match="outside the soft limits"):
+        adapter.move_relative({"X": 20.0}, feed=20.0)
+    assert board.axes["X"]["machinePosition"] == pytest.approx(980.0)
+    # moving back inside is fine
+    adapter.move_relative({"X": -20.0}, feed=200.0)
+
+
+def test_fake_board_clamps_like_rrf():
+    """The fake mirrors the real clamp so a bypassed host check trips
+    position assertions instead of passing quietly."""
+    board = ScriptedDuetBoard()
+    board.refuse_moves_unhomed = False
+    board(f"http://fake/rr_gcode?gcode=G90", None, 5.0)
+    board(f"http://fake/rr_gcode?gcode=G1 X2000 F600", None, 5.0)
+    assert board.axes["X"]["machinePosition"] == pytest.approx(987.448)

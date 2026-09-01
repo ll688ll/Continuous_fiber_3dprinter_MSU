@@ -55,7 +55,12 @@ in one direction, and nothing at the maximum end.
 
 Worth doing before the toolboard adds a heater to the picture.
 
-### [ ] Re-check soft limits are doing their job
+### [~] Re-check soft limits are doing their job — CHECKED 2026-08-30, one finding fixed
+
+Shakeout confirmed: **RRF `M564 S1` silently clamps to `M208` rather than
+refusing** — an out-of-envelope jog traveled to the limit with no error.
+Host-side refusal now lives in the Duet adapter (prints were already covered
+by the preflight envelope walk). The caveats below still stand.
 
 Max-end protection is `M208` only, by decision. Confirm you are comfortable with
 the two caveats: soft limits **only hold while the axis is homed and the datum

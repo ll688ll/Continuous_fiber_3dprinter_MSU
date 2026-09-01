@@ -252,8 +252,12 @@ class ScriptedDuetBoard:
                     continue
                 v = float(value)
                 ax = self.axes[letter]
-                ax["machinePosition"] = (ax["machinePosition"] + v
-                                         if self.relative else v)
+                target = ax["machinePosition"] + v if self.relative else v
+                # RRF M564 S1 (default) SILENTLY CLAMPS to M208 rather than
+                # rejecting — confirmed on hardware 2026-08-30. The fake is
+                # faithful so a missing host-side check fails position
+                # assertions instead of passing quietly.
+                ax["machinePosition"] = min(max(target, ax["min"]), ax["max"])
             self._busy_left = self.busy_reads
 
     def _upload(self, name: str, crc_hex: str, data: bytes) -> bytes:

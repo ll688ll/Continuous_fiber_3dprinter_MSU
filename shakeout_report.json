@@ -1,0 +1,24 @@
+{
+  "drift_findings": [],
+  "home_all_s": 16.6,
+  "homed": [
+    "X",
+    "Y",
+    "Z_T0"
+  ],
+  "jog_square_s": 5.1,
+  "jog_final": {
+    "X": 4.998,
+    "Y": 4.998,
+    "Z_T0": 5.0
+  },
+  "envelope_refusal": "FAILED - move was accepted!",
+  "estop_active": true,
+  "m999_recovery_s": 22.4,
+  "homed_after_reset": [],
+  "rehomed": [
+    "X",
+    "Y",
+    "Z_T0"
+  ]
+}

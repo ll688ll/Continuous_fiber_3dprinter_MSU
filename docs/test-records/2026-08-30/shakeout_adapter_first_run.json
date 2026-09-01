@@ -1,0 +1,13 @@
+{
+  "_note": "First hardware shakeout of the v2 DuetMotionAdapter (before the host-side soft-limit fix). Steps 1-3 and 5-6 PASSED. Step 4 exposed that RRF M564 S1 silently CLAMPS out-of-envelope targets to M208 instead of rejecting them - the axis traveled to X=987.448 with no error anywhere. Fix: host-side soft-limit refusal in DuetMotionAdapter._check_soft_limits; the board's clamp remains the physical backstop.",
+  "drift_findings": [],
+  "home_all_s": 16.6,
+  "homed": ["X", "Y", "Z_T0"],
+  "jog_square_s": 5.1,
+  "jog_final": {"X": 4.998, "Y": 4.998, "Z_T0": 5.0},
+  "envelope_refusal": "FAILED - move was accepted!",
+  "estop_active": true,
+  "m999_recovery_s": 22.4,
+  "homed_after_reset": [],
+  "rehomed": ["X", "Y", "Z_T0"]
+}

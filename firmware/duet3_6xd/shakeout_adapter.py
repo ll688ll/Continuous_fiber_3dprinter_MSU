@@ -82,15 +82,20 @@ def main() -> int:
         REPORT["jog_final"] = {n: a["position"] for n, a in pos.items()}
         print(f"  done in {REPORT['jog_square_s']} s at {REPORT['jog_final']}")
 
-    print("\n=== 4. out-of-envelope move must be refused ===")
+    print("\n=== 4. out-of-envelope move must be refused HOST-SIDE ===")
+    # Finding 2026-08-30: RRF M564 S1 silently CLAMPS to M208 instead of
+    # rejecting, so the refusal must come from the adapter (and does, since
+    # v2 commit after the first shakeout). The board's clamp is the backstop.
     x_max = profile.axis("X").limits_mm[1]
     try:
         adapter.move_absolute({"X": x_max + 50.0}, feed=20.0)
-        REPORT["envelope_refusal"] = "FAILED - move was accepted!"
-        print("  !! the board ACCEPTED an out-of-envelope move - check M208")
+        REPORT["envelope_refusal"] = ("FAILED - accepted! (host-side check "
+                                      "missing?)")
+        print("  !! ACCEPTED - the adapter's host-side soft-limit check is "
+              "not working")
     except DuetError as exc:
-        REPORT["envelope_refusal"] = f"refused: {exc}"
-        print(f"  refused as expected: {exc}")
+        REPORT["envelope_refusal"] = f"refused host-side: {exc}"
+        print(f"  refused host-side as expected: {exc}")
 
     print("\n=== 5. e-stop + recovery ===")
     if ask("send M112 (board halts) then M999 (board reboots)?"):

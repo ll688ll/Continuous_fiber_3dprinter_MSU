@@ -223,6 +223,7 @@ class DuetMotionAdapter(BaseMotionController):
               *, relative: bool) -> None:
         if not values:
             return
+        self._check_soft_limits(values, relative=relative)
         words = " ".join(f"{self._require_axis(n)}{_fmt(v)}"
                          for n, v in values.items())
         gline = f"G1 {words} F{_fmt(feed_mm_s * 60.0)}"  # RRF F is mm/min
@@ -277,6 +278,34 @@ class DuetMotionAdapter(BaseMotionController):
                         f"{self.RECONNECT_TIMEOUT_S:.0f} s of M999")
 
     # --------------------------------------------------------------- helpers
+    def _check_soft_limits(self, values: Mapping[str, float],
+                           *, relative: bool) -> None:
+        """Refuse out-of-envelope interactive moves HOST-SIDE.
+
+        Lab shakeout 2026-08-30: RRF's default ``M564 S1`` does not reject a
+        target beyond M208 — it SILENTLY CLAMPS the move to the limit (same
+        failure family as the FMC's silent-ignore: safe machine, lying
+        software). The board's clamp stays as the physical backstop; this
+        check makes the refusal loud. Prints are covered separately by the
+        preflight envelope walk."""
+        current: dict[str, float] = {}
+        if relative:
+            for ax in self._model_axes():
+                name = self._name_of.get(ax.get("letter"))
+                if name is not None:
+                    current[name] = float(ax.get("machinePosition", 0.0))
+        for name, value in values.items():
+            axis = self._axes.get(name)
+            if axis is None or axis.limits_mm is None:
+                continue
+            lo, hi = axis.limits_mm
+            target = current.get(name, 0.0) + value if relative else value
+            if not (lo - 1e-6 <= target <= hi + 1e-6):
+                raise DuetError(
+                    f"{name}={target:.3f} is outside the soft limits "
+                    f"[{lo:.3f}, {hi:.3f}] mm - refused host-side (RRF "
+                    f"M564 S1 would silently clamp it, not reject it)")
+
     def _raise_on_error_reply(self, context: str) -> None:
         try:
             reply = self._client.reply()

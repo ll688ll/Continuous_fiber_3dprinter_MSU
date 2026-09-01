@@ -95,12 +95,22 @@ M208; RRF wants mm/min (M203/M566/F); verify `M32` reply AND
 `job.file.fileName`; durations from the board; `clear_estop`=M999=reboot
 (homed state lost); no per-move verification behind 60-move look-ahead
 (upload CRC + run verification + end-of-job position check instead);
-E rides the XY planner line; heater hardware-gated.
+E rides the XY planner line; heater hardware-gated; **RRF M564 S1 CLAMPS
+out-of-envelope moves silently** (hardware-confirmed 2026-08-30) — the loud
+refusal lives host-side in the adapter, the board's clamp is the backstop.
 
 ## 4. Hardware validation still owed (next lab visit)
 
-1. `firmware/duet3_6xd/shakeout_adapter.py` — connect/drift/home/jog/
-   envelope-refusal/M112+M999 through the new adapter.
+1. ~~`shakeout_adapter.py`~~ **RUN 2026-08-30** (record:
+   `docs/test-records/2026-08-30/shakeout_adapter_first_run.json`):
+   drift CLEAN, home-all 16.6 s, jog square exact, M112 halt + M999
+   recovery 22.4 s with homed state correctly lost. **Finding: RRF
+   `M564 S1` silently CLAMPS out-of-envelope targets to M208 instead of
+   rejecting them** (the axis traveled to X=987.448 with no error — same
+   family as the FMC silent-ignore). Fixed same day: host-side soft-limit
+   refusal in `DuetMotionAdapter._check_soft_limits` (absolute + relative
+   jogs), fake board now clamps like the real one, 3 regression tests.
+   **Re-run the script once to see step 4 pass.**
 2. One-time `config.g` edit: replace the axis sections with
    `M98 P"/sys/msu_machine.g"`, then `printer-msu apply-config
    --profile configs/duet_lab.json` and verify the drift check reads clean.
