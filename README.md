@@ -11,12 +11,20 @@ the card, and line-by-line streaming from a master machine (a 1.2 % penalty).
 Wiring, drive parameters, measurements and the traps found along the way:
 [`firmware/duet3_6xd/README.md`](firmware/duet3_6xd/README.md).
 
-**Not yet done.** `printer_msu` still targets the FMC and has not been ported
-to the Duet HTTP API — that is the next milestone. There is no e-stop chain and
-no hardware maximum limits (soft limits only, by decision), and the drive fault
-lines are unwired, so a servo alarm is currently invisible to the firmware. The
-tool controller is still open; a **Duet 3 Toolboard 1LC** on CAN-FD is the
-chosen route, which puts extruder sync inside the motion planner.
+**Update (2026-08-30): the Duet port is IMPLEMENTED (software).**
+`printer_msu` v2 drives the Duet over HTTP: multi-controller machine
+profiles, generated board config with drift checking, preload/stream job
+execution, tool functions (heater/thermocouple/extruder/fan, capability-
+gated), an offline capability preflight, and a tabbed UI with a machine
+setup page and plane calibration — see `docs/PRD_Printer_App_v2.md`.
+Hardware shakeout on the lab machine is the next step (PRD v2 §4).
+
+**Safety state unchanged:** no e-stop chain, no hardware maximum limits (soft
+limits only, by decision), drive fault lines unwired — a servo alarm is still
+invisible to the firmware. These remain priority 1 in `docs/TODO.md` and gate
+any heater power. **Tool hardware decision (D-V2-2, 2026-08-30):** everything
+on the 6XD mainboard — extruder on a spare driver, heater on a mainboard
+output, thermocouple via daughterboard (no CAN toolboard this phase).
 
 **M6 / Auto Run is closed** — it was an FMC-specific workaround for a controller
 with no look-ahead, and is not needed on RepRapFirmware. Do not re-propose it.
@@ -28,10 +36,11 @@ Customized multi-axis 3D printer control software (desktop) for a multi-module p
 
 - **XY** base motion for printing.
 - Multiple **tool modules** selected via G-code `T0`, `T1`, … (one active at a time).
-- v1 target: **Windows** host; motion on a **Duet 3 Mainboard 6XD**
-  (RepRapFirmware) driving external Delta ASD-B3 servo drives, with a **Duet 3
-  Toolboard** over CAN-FD for the extruder and heater.
-  *Superseded 2026-08-24:* FMC006GE31 + a separate Marlin-class tool controller.
+- target: **Windows** host; motion on a **Duet 3 Mainboard 6XD**
+  (RepRapFirmware) driving external Delta ASD-B3 servo drives; extruder/
+  heater/thermocouple on the same mainboard (D-V2-2).
+  *Superseded:* FMC006GE31 (2026-08-24) and the CAN toolboard route
+  (2026-08-30).
 
 ### Repository layout (matches the SRS architecture)
 
@@ -77,8 +86,14 @@ printer-msu check examples/square_20mm.gcode --profile configs/printer_sim.json
 printer-msu print examples/square_20mm.gcode --profile configs/printer_sim.json
 ```
 
-On the lab machine, use `--profile configs/printer_msu_lab.json` (real mode,
-XY only). `python -m printer_msu ...` works identically. The PySide6 print
+On the lab machine use `--profile configs/duet_lab.json` — the Duet profile
+(schema v2). Useful v2 commands: `printer-msu apply-config --profile
+configs/duet_lab.json --dry-run` previews the generated board config;
+`printer-msu calibrate plane --profile configs/duet_lab.json --tool 0` jogs
+and captures a tool's print-plane offset; `printer-msu print ...
+--execution stream` picks streamed execution over the preload default.
+The old FMC profile `configs/printer_msu_lab.json` still loads (auto-migrated).
+`python -m printer_msu ...` works identically. The PySide6 print
 console (requires the `[ui]` extra) opens with
 
 ```bash
@@ -86,8 +101,8 @@ printer-msu ui --profile configs/printer_sim.json examples/square_20mm.gcode
 ```
 
 and offers connect, check, start/pause/resume/stop/e-stop, live axis status,
-and a log tail. Design docs: `docs/PRD_Printer_App.md` (printer core) and
-`docs/PRD_Motion_Control_Library.md` (motion library).
+and a log tail. Design docs: `docs/PRD_Printer_App_v2.md` (current), `docs/PRD_Printer_App.md`
+(v1 record) and `docs/PRD_Motion_Control_Library.md` (motion library).
 
 The PySide6 UI is an optional extra (`.[ui]`); the core and the motion
 library install without it. The printer core reaches the motion hardware via
@@ -98,7 +113,7 @@ moves included (library v1.1 `move_line`).
 ### Tests
 
 ```bash
-pytest            # printer core + motion library (152 tests, sim only)
+pytest            # printer core + motion library (274 tests; Duet paths run against an in-process fake board)
 ```
 
 ### Working with the Duet

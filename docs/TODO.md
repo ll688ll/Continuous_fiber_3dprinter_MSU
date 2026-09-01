@@ -112,13 +112,13 @@ tool architecture are independent decisions.**
 > note the 6XD still has **drivers 3, 4 and 5 free**, so a plain step/dir
 > extruder could go straight on the mainboard with no toolboard at all.
 
-### [ ] Configure the tool in RRF
+### [~] Configure the tool in RRF — generator ready (2026-08-30), applying gated on safety §1
 
 `M563` tool definition, heater and thermistor setup, and tool-change macros
 (`tfree`/`tpre`/`tpost`) for the per-tool Z arrangement. Evaluation item V1 —
 the per-tool-Z pattern was never confirmed on the Duet forum.
 
-### [ ] Calibrate the real Z bed offset (SRS Q3)
+### [~] Calibrate the real Z bed offset (SRS Q3) — workflow ready (`printer-msu calibrate plane`), lab run pending
 
 `z_bed_offset_mm = 100` is a **placeholder for mid-air dry runs only**. The real
 value has to be measured before anything touches a bed. Machine zero is at the
@@ -128,9 +128,12 @@ value has to be measured before anything touches a bed. Machine zero is at the
 
 ## 4 — Software
 
-### [ ] Port `printer_msu` to the Duet HTTP API
+### [x] Port `printer_msu` to the Duet HTTP API — SOFTWARE DONE 2026-08-30
 
-The next real milestone; not started. `cura_to_msu.py` is the shape of it: the
+Implemented as printer_msu v2 (`docs/PRD_Printer_App_v2.md`): DuetClient +
+adapter + drift check, generated board config, preload/stream executors, tool
+functions, capability preflight, setup UI. Hardware shakeout pending
+(`firmware/duet3_6xd/shakeout_adapter.py`). Original notes kept below. `cura_to_msu.py` is the shape of it: the
 parser and interpreter survive as the slicer-to-machine transform, and the app
 becomes a front end over `/rr_gcode`, `/rr_reply`, `/rr_upload`, `/rr_model`.
 Most of the FMC dispatch layer disappears, because RRF eats G-code directly.
@@ -146,7 +149,7 @@ Three properties to carry over, each of which cost real debugging time:
   of "measurements" from the previous job.
 - **Read `job.duration` from the board**, never a host-side timer.
 
-### [ ] Decide the mode-selection policy
+### [x] Decide the mode-selection policy — D7 (2026-08-30): preload default, stream for host-in-the-loop
 
 Preload is the default — nothing in the host path can disturb the print. Reach
 for streaming only when the host genuinely needs to stay in the loop: adaptive

@@ -1,0 +1,125 @@
+# PRD — Printer Application v2 ("printer_msu" on the Duet 3 6XD)
+
+| | |
+|---|---|
+| Status | **Implemented (software) 2026-08-30** — V2-M1..M6 landed, all sim/fake-board verified; hardware shakeout pending (see §6) |
+| Date | 2026-08-30 |
+| Owner | Jacky Lyu |
+| Related | `PRD_Printer_App.md` (v1, frozen record), `PRD_Motion_Control_Library.md` (FMC library, finished), `firmware/duet3_6xd/README.md` (the live machine), `docs/TODO.md` |
+
+## 1. Scope — Jacky's five requirements (2026-08-30)
+
+1. **Configuration**: assign every axis/channel to a controller with its
+   parameters (X → Duet driver 0, max speed/accel, min endstop io3; Z2 → FMC
+   ch 0; Extruder 1 → Duet driver 3; thermocouple settings).
+2. **Duet tool functions**: extruder + heater/thermocouple (+fan). FMC stays
+   motion-only.
+3. **UI setup section**.
+4. **Home-all**; tool-Z homes UP → per-tool calibratable print-plane offset.
+5. **G-code capability review** after load: report missing functions/axes.
+
+Decisions (locked): **D-V2-1** schema multi-controller, Duet-only driven this
+phase; **D-V2-2** tool hardware on the 6XD mainboard (thermocouple
+daughterboard — SRS D8 kept; no CAN toolboard); **D-V2-3** PySide6 UI
+extension; **D-V2-4** core-first sequencing.
+
+New decisions made during implementation:
+- **D5 — arcs are capability-gated** (supersedes D4's blanket rejection,
+  which stands verbatim for the FMC): G2/G3 are accepted when the motion
+  controller executes them natively (RRF) and `policies.arcs` allows.
+  Helical/relative/full-circle arcs stay rejected.
+- **D6 — the profile is the source of truth for board config**: the app
+  generates `/sys/msu_machine.g` (single `M584` first — it clears `M574` and
+  datums; mm/min conversions; endstops; tool block with `M143` ceiling);
+  hand-maintained `config.g` keeps network/driver-timing/safety and includes
+  it via `M98`. Upload only on explicit *apply-config*; **every connect runs
+  a drift check** (profile vs live `move.axes`) surfaced through preflight
+  (`policies.config_drift`).
+- **D7 — preload (Mode B) is the default execution**; streaming (Mode A)
+  is for host-in-the-loop work (`policies.execution` / `--execution`).
+
+## 2. What was built (by milestone, all on `main`)
+
+- **V2-M1 — profile schema v2** (`config/profile.py`): `controllers[]`
+  (duet | fmc_motion), `axes[]` (controller, channel, letter, steps/mm,
+  speed/accel/jerk maxima, limits, endstop pin — `io0.in` hard-rejected,
+  `homes_up`), `tools[]` (z_axis, **plane_offset_mm**, extruder, heater
+  incl. thermocouple sensor, fan). v1 auto-migrates; `to_dict()` emits
+  canonical v2; atomic writer `config/profile_store.py`. New configs:
+  `configs/duet_lab.json` (the real machine), `configs/printer_sim_v2.json`.
+- **V2-M2 — Duet backend**: `controllers/motion/duet/client.py`
+  (productionized `stream_gcode.Duet`: opener seam, retries on idempotent
+  reads only, `send()` refuses payloads over live `buff`, CRC-verified
+  `rr_upload`); `adapter.py` (wide-HAL over the object model; bare-G28
+  home-all = board's tool-Z-first macros; error-reply checking; M112/M999
+  with reconnect; **connect-time drift check**); `config/duet_config_gen.py`;
+  CLI `apply-config` and `calibrate plane`; the ABC now carries the full
+  wide contract.
+- **V2-M3 — execution split**: `core/gcode/emitter.py` (actions → board
+  G-code with byte-offset→source-line map + final-target tracking);
+  `services/duet_execution.py` — `DuetFileExecutor` (upload → `M32` →
+  **verify reply AND `job.file.fileName`** → progress from
+  `job.filePosition` → **end-of-job position check** → duration from
+  `job.lastDuration`) and `DuetStreamExecutor` (byte-batched `rr_gcode`
+  feed). FMC per-move path extracted verbatim (`_run_action_stream`),
+  behavior identical. Job report gains `execution`/`board_duration_s`/
+  `host_duration_s`.
+- **V2-M4 — tool functions**: capability-driven interpreter dispatch
+  (M104/M109 → `SetToolTemp` with `max_temp_c` ceiling as a FATAL check;
+  M106/M107 → `SetFanSpeed`; E words → **relative-normalized `e_delta`
+  riding the planner-synced XY component**); `DuetToolController`
+  (temp/fan/manual extrude/emergency shutdown; status from `heat.heaters`);
+  `full_status()` grows a `tools` block. Profiles without tool hardware
+  (all FMC profiles) behave exactly as v1.
+- **V2-M5 — capability preflight**: `_check_capability_gaps` runs FIRST and
+  fully offline ("file extrudes 4x E words but no extruder is configured —
+  motion will run WITHOUT extrusion"); `UsageReport` gains
+  needs_heater/needs_fan/extrudes/reports_temp; arcs per D5 with a
+  conservative endpoint±radius envelope band.
+- **V2-M6 — UI**: tabbed console (Print | Setup); Setup page edits
+  controllers/axes/tools in tables with full-validator round-trip saves,
+  Preview/Apply board config, per-tool **plane calibration dialog**
+  (jog ±1/±0.1/±0.01, Capture); capability panel shows the gap scan the
+  moment a file opens, before Connect.
+
+Tests: **191 printer + 83 fmc-motion**, all green. The Duet path runs
+headless in CI against `tests/duet_testlib.ScriptedDuetBoard`, which
+reproduces the board's real failure modes (silent buffer overflow drop,
+rr_reply-only refusals, M999 reboot semantics, ghost-job start).
+
+## 3. Traps encoded as tests (do not relearn these)
+
+`rr_gcode` silently drops overflow (batch by bytes); single `M584` first;
+never `io0.in`/`M575`; static IP stays hand-maintained; `G1 H2` bypasses
+M208; RRF wants mm/min (M203/M566/F); verify `M32` reply AND
+`job.file.fileName`; durations from the board; `clear_estop`=M999=reboot
+(homed state lost); no per-move verification behind 60-move look-ahead
+(upload CRC + run verification + end-of-job position check instead);
+E rides the XY planner line; heater hardware-gated.
+
+## 4. Hardware validation still owed (next lab visit)
+
+1. `firmware/duet3_6xd/shakeout_adapter.py` — connect/drift/home/jog/
+   envelope-refusal/M112+M999 through the new adapter.
+2. One-time `config.g` edit: replace the axis sections with
+   `M98 P"/sys/msu_machine.g"`, then `printer-msu apply-config
+   --profile configs/duet_lab.json` and verify the drift check reads clean.
+3. `printer-msu print CE5_pill_box_insert.gcode --profile duet_lab.json`
+   mid-air: expect ≈ **2148 s** from `job.duration` (the regression number);
+   `--execution stream` once (≈ +1.2 %).
+4. `printer-msu calibrate plane --tool 0` dry run (mid-air capture).
+5. Tool bring-up, gated (V2-M4 §hardware): cold extruder jog + steps/mm →
+   thermocouple bench sanity → **HARD GATE: `Dn_ERR`→ALRM wiring
+   meter-verified (Delta ALRM is a b-contact — conducts when healthy; RRF
+   pull-up expects fault-LOW) + V4 e-stop chain** → M303 PID tune → first
+   heated extrusion.
+
+## 5. Open items beyond this phase
+
+- Fiber process design doc (cutter, feed sync, toolpath generation) — the
+  60-move look-ahead constraint shapes it; extruder-as-planner-axis was the
+  architectural preparation.
+- Multi-controller live driving (schema ready; runtime refuses per D-V2-1).
+- `cura_to_msu.py` limits should source from a profile (deprecation note in
+  its header); most of its job is now `emit_machine_gcode`.
+- Push `main` to `origin/main` (still local-only — Jacky's call).

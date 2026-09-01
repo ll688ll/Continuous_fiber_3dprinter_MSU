@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Convert slicer G-code into something the MSU machine can run on the Duet.
+"""
+NOTE (2026-08-30): printer_msu v2's interpreter+emitter now perform this
+transform with profile-sourced limits (`printer-msu print/check`); this
+script stays as a standalone fallback but its LIMITS dict is hardcoded —
+prefer the app for anything the app can do.
+Convert slicer G-code into something the MSU machine can run on the Duet.
 
 Handles the two traps that bite silently:
 
