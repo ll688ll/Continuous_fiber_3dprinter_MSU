@@ -81,6 +81,21 @@ New decisions made during implementation:
   Preview/Apply board config, per-tool **plane calibration dialog**
   (jog ±1/±0.1/±0.01, Capture); capability panel shows the gap scan the
   moment a file opens, before Connect.
+- **V2-M6b (2026-09-01) — structural editing + generated homing macros**:
+  Setup page gains **Add axis / Remove axis / Add tool / Remove tool /
+  Hardware…** (extruder/heater/fan JSON dialog with a prefilled extruder
+  template on a free channel); templates auto-pick the next free duet
+  channel and an extra-axis letter (U/V/W… — a second independent Z must
+  NOT reuse `Z`, RRF would gang the motors). `generate_homing_macros()`
+  renders `homeall.g` + `home<letter>.g` from the profile (proven card
+  pattern verbatim: bounded H1 fast approach, back-off, slow re-approach,
+  5 mm clear; tool-Z first in homeall; endstop-less axes skipped with a
+  comment); `apply-config` and the UI Apply upload them CRC-verified
+  (macros take effect immediately — only the include needs M999). Repo
+  macro copies are now generated output; **uploaded to the live board
+  2026-09-01, command-for-command identical to the hand-written macros**
+  except slightly longer (equivalent) search bounds. Adding an axis in
+  the UI now covers the whole loop: row → Save → Apply → home.
 
 Tests: **191 printer + 83 fmc-motion**, all green. The Duet path runs
 headless in CI against `tests/duet_testlib.ScriptedDuetBoard`, which

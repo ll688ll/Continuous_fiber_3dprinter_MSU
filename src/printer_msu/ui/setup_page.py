@@ -85,6 +85,15 @@ class SetupPage(QWidget):
             [label for _, label in _AXIS_COLUMNS])
         self.axes_table.verticalHeader().setVisible(False)
         avl.addWidget(self.axes_table)
+        arow = QHBoxLayout()
+        self.add_axis_btn = QPushButton("Add axis")
+        self.add_axis_btn.clicked.connect(self.add_axis)
+        self.remove_axis_btn = QPushButton("Remove selected axis")
+        self.remove_axis_btn.clicked.connect(self.remove_selected_axis)
+        arow.addWidget(self.add_axis_btn)
+        arow.addWidget(self.remove_axis_btn)
+        arow.addStretch(1)
+        avl.addLayout(arow)
         root.addWidget(axes_box, 2)
 
         tools_box = QGroupBox("Tools")
@@ -95,8 +104,17 @@ class SetupPage(QWidget):
         self.tools_table.verticalHeader().setVisible(False)
         tvl.addWidget(self.tools_table)
         trow = QHBoxLayout()
+        self.add_tool_btn = QPushButton("Add tool")
+        self.add_tool_btn.clicked.connect(self.add_tool)
+        self.remove_tool_btn = QPushButton("Remove selected tool")
+        self.remove_tool_btn.clicked.connect(self.remove_selected_tool)
+        self.hardware_btn = QPushButton("Hardware…")
+        self.hardware_btn.clicked.connect(self.edit_selected_hardware)
         self.calibrate_btn = QPushButton("Calibrate plane…")
         self.calibrate_btn.clicked.connect(self.calibrate_selected_tool)
+        trow.addWidget(self.add_tool_btn)
+        trow.addWidget(self.remove_tool_btn)
+        trow.addWidget(self.hardware_btn)
         trow.addWidget(self.calibrate_btn)
         trow.addStretch(1)
         tvl.addLayout(trow)
@@ -257,6 +275,178 @@ class SetupPage(QWidget):
                              f"numeric") from exc
         return raw
 
+    # ------------------------------------------------------- structural edits
+    def _sync_tables(self) -> bool:
+        """Pull current cell edits into ``self._data`` before a structural
+        change, so adding/removing rows never discards unsaved typing."""
+        try:
+            self._data = self.collect()
+            return True
+        except ValueError as exc:
+            QMessageBox.warning(self, "Fix the highlighted value first",
+                                str(exc))
+            return False
+
+    def _duet_controller_id(self) -> Optional[str]:
+        for c in (self._data or {}).get("controllers", []):
+            if c.get("type") == "duet":
+                return c["id"]
+        controllers = (self._data or {}).get("controllers", [])
+        return controllers[0]["id"] if controllers else None
+
+    def _free_channel(self, controller_id: str) -> int:
+        used = {a.get("channel") for a in self._data.get("axes", [])
+                if a.get("controller") == controller_id}
+        used |= {t["extruder"].get("channel") for t in self._data.get("tools", [])
+                 if t.get("extruder")
+                 and t["extruder"].get("controller") == controller_id}
+        for ch in range(6):
+            if ch not in used:
+                return ch
+        return max((c for c in used if isinstance(c, int)), default=-1) + 1
+
+    def _free_letter(self, controller_id: str) -> str:
+        used = {a.get("letter") for a in self._data.get("axes", [])
+                if a.get("controller") == controller_id}
+        for letter in "UVWABC":  # extra-axis letters; XYZ stay for the gantry
+            if letter not in used:
+                return letter
+        return "?"
+
+    def add_axis(self) -> None:
+        """Template for an additional tool-Z style axis (the common case).
+
+        The template mirrors Z_T0's proven parameters; the user fixes name,
+        channel, endstop pin (io6/io7/io8 are free — NEVER io0) and limits,
+        then Save validates everything."""
+        if self._data is None or not self._sync_tables():
+            return
+        cid = self._duet_controller_id()
+        if cid is None:
+            QMessageBox.warning(self, "Add axis", "no controller in profile")
+            return
+        existing = {a.get("name") for a in self._data["axes"]}
+        k = 0
+        while f"Z_T{k}" in existing:
+            k += 1
+        name = f"Z_T{k}"
+        self._data["axes"].append({
+            "name": name, "controller": cid,
+            "channel": self._free_channel(cid),
+            "letter": self._free_letter(cid),
+            "steps_per_mm": 500.0, "max_speed_mm_s": 100.0,
+            "max_accel_mm_s2": 800.0, "jerk_mm_s": 2.0,
+            "limits_mm": [0.0, 282.0], "homes_up": True,
+        })
+        self._populate()
+        self.setup_status.setText(
+            f"added axis {name!r} — set its endstop pin (io6/io7/io8 are "
+            f"free) and limits, then Save")
+
+    def remove_selected_axis(self) -> None:
+        row = self.axes_table.currentRow()
+        if self._data is None or row < 0 or not self._sync_tables():
+            return
+        axis = self._data["axes"][row]
+        users = [str(t["tool_index"]) for t in self._data.get("tools", [])
+                 if t.get("z_axis") == axis.get("name")]
+        warning = (f"\n\nWARNING: tool(s) T{', T'.join(users)} use it as "
+                   f"their z_axis — Save will fail until they are updated."
+                   if users else "")
+        if QMessageBox.question(
+                self, "Remove axis",
+                f"Remove axis {axis.get('name')!r}?{warning}") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        del self._data["axes"][row]
+        self._populate()
+
+    def add_tool(self) -> None:
+        if self._data is None or not self._sync_tables():
+            return
+        indices = [t["tool_index"] for t in self._data.get("tools", [])]
+        self._data.setdefault("tools", []).append(
+            {"tool_index": max(indices, default=-1) + 1, "z_axis": None})
+        self._populate()
+        self.setup_status.setText(
+            "added tool — set its Z axis cell, then Save")
+
+    def remove_selected_tool(self) -> None:
+        row = self.tools_table.currentRow()
+        if self._data is None or row < 0 or not self._sync_tables():
+            return
+        tool = self._data["tools"][row]
+        if QMessageBox.question(
+                self, "Remove tool",
+                f"Remove tool T{tool['tool_index']}?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        del self._data["tools"][row]
+        self._populate()
+
+    def edit_selected_hardware(self) -> None:
+        """Edit the selected tool's extruder/heater/fan sections as JSON."""
+        row = self.tools_table.currentRow()
+        if self._data is None or row < 0:
+            QMessageBox.information(self, "Hardware", "select a tool row first")
+            return
+        if not self._sync_tables():
+            return
+        tool = self._data["tools"][row]
+        current = {k: tool[k] for k in ("extruder", "heater", "fan")
+                   if tool.get(k)}
+        if not current:
+            cid = self._duet_controller_id() or "duet"
+            current = {"extruder": {
+                "controller": cid, "channel": self._free_channel(cid),
+                "letter": "E", "steps_per_mm": 400.0,
+                "max_speed_mm_s": 60.0, "max_accel_mm_s2": 500.0,
+                "jerk_mm_s": 2.0}}
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Tool T{tool['tool_index']} hardware "
+                              f"(extruder / heater / fan, JSON)")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            "Keys: extruder, heater, fan. Delete a key to remove that "
+            "hardware. Heater stays out of the applied config until the "
+            "safety gate clears (PRD v2)."))
+        editor = QPlainTextEdit(json.dumps(current, indent=2))
+        layout.addWidget(editor)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.resize(520, 360)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self.apply_hardware_json(row, editor.toPlainText())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Hardware", str(exc))
+
+    def apply_hardware_json(self, row: int, text: str) -> None:
+        """Parse + apply a hardware JSON edit to tool ``row`` (dialog-free
+        entry point, also used by tests)."""
+        try:
+            parsed = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict) or \
+                set(parsed) - {"extruder", "heater", "fan"}:
+            raise ValueError("only 'extruder', 'heater' and 'fan' keys are "
+                             "allowed here")
+        tool = self._data["tools"][row]
+        for key in ("extruder", "heater", "fan"):
+            if parsed.get(key):
+                tool[key] = parsed[key]
+            else:
+                tool.pop(key, None)
+        self._populate()
+        self.setup_status.setText(
+            f"tool T{tool['tool_index']} hardware updated — Save to keep, "
+            f"then Apply to board")
+
     # ------------------------------------------------------------------ save
     def save(self) -> bool:
         try:
@@ -287,14 +477,30 @@ class SetupPage(QWidget):
             data, base_dir=self._path.parent if self._path else None)
         return generate_machine_g(profile)
 
+    def preview_files(self) -> dict[str, str]:
+        """All generated board files: the include + homing macros."""
+        from ..config.duet_config_gen import (BOARD_PATH,
+                                              generate_homing_macros,
+                                              generate_machine_g)
+
+        data = self.collect()
+        profile = profile_from_dict(
+            data, base_dir=self._path.parent if self._path else None)
+        files = {BOARD_PATH: generate_machine_g(profile)}
+        for name, body in generate_homing_macros(profile).items():
+            files[f"/sys/{name}"] = body
+        return files
+
     def _show_preview(self) -> None:
         try:
-            text = self.preview_text()
+            files = self.preview_files()
         except Exception as exc:
             QMessageBox.warning(self, "Board config", str(exc))
             return
+        text = "\n".join(f"; ================= {path}\n{body}"
+                         for path, body in files.items())
         dialog = QDialog(self)
-        dialog.setWindowTitle("Generated /sys/msu_machine.g")
+        dialog.setWindowTitle("Generated board files (include + homing macros)")
         layout = QVBoxLayout(dialog)
         view = QPlainTextEdit(text)
         view.setReadOnly(True)
@@ -317,23 +523,24 @@ class SetupPage(QWidget):
                 "over the same connection)")
             return
         try:
-            text = self.preview_text()
+            files = self.preview_files()
         except Exception as exc:
             QMessageBox.warning(self, "Board config", str(exc))
             return
+        names = "\n".join(files)
         if QMessageBox.question(
                 self, "Apply to board",
-                "Upload /sys/msu_machine.g to the board?\n\n"
-                "Changes take effect after a reset (M999) — the board "
-                "reboots and loses its homed state.") \
+                f"Upload to the board:\n{names}\n\n"
+                "Homing macros take effect immediately; the machine include "
+                "needs a reset (M999) — the board reboots and loses its "
+                "homed state.") \
                 != QMessageBox.StandardButton.Yes:
             return
 
-        from ..config.duet_config_gen import BOARD_PATH
-
         def _upload():
-            client.upload(BOARD_PATH, text.encode("ascii"))
-            return BOARD_PATH
+            for path, body in files.items():
+                client.upload(path, body.encode("ascii"))
+            return ", ".join(files)
 
         self._window.tasks.run("apply_config", _upload)
 

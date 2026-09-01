@@ -89,3 +89,70 @@ def test_no_duet_axes_raises():
 
     with pytest.raises(ValueError, match="no axes on a duet controller"):
         generate_machine_g(make_profile())  # fmc-only profile
+
+
+# ------------------------------------------------------------- homing macros
+def test_homing_macros_generated_for_each_homable_axis():
+    from printer_msu.config.duet_config_gen import generate_homing_macros
+
+    profile = make_duet_profile()
+    files = generate_homing_macros(profile)
+    assert set(files) == {"homeall.g", "homex.g", "homey.g", "homez.g"}
+    x = files["homex.g"]
+    # proven pattern: G91 wrap, bounded fast H1, back-off, slow H1, clear
+    assert "G91" in x and x.rstrip().endswith("G90")
+    assert "G1 H1 X-1050 F1800" in x  # 987.448 span -> bound 1050, 30 mm/s
+    assert "G1 H1 X-10 F150" in x     # slow re-approach 2.5 mm/s
+    assert x.count("G1 H2 X5 F600") == 3  # 10 mm/s hops for a gantry axis
+    z = files["homez.g"]
+    assert "G1 H2 Z5 F300" in z       # homes_up axis hops at 5 mm/s
+    assert "negative is UP" in z
+
+
+def test_homeall_orders_tool_z_axes_first():
+    from printer_msu.config.duet_config_gen import generate_homing_macros
+
+    files = generate_homing_macros(make_duet_profile())
+    calls = [l for l in files["homeall.g"].splitlines() if l.startswith("M98")]
+    assert calls == ['M98 P"homez.g"', 'M98 P"homex.g"', 'M98 P"homey.g"']
+
+
+def test_new_axis_without_endstop_is_skipped_with_note():
+    from printer_msu.config.duet_config_gen import generate_homing_macros
+
+    data = copy.deepcopy(DUET_PROFILE_DATA)
+    data["axes"].append({
+        "name": "Z_T1", "controller": "duet", "channel": 3, "letter": "U",
+        "steps_per_mm": 500.0, "max_speed_mm_s": 100.0,
+        "max_accel_mm_s2": 800.0, "jerk_mm_s": 2.0,
+        "limits_mm": [0.0, 282.0], "homes_up": True,
+    })
+    files = generate_homing_macros(profile_from_dict(data))
+    assert "homeu.g" not in files
+    assert "Z_T1 (U) has no minimum endstop" in files["homeall.g"]
+
+
+def test_new_axis_with_endstop_gets_macro_and_homeall_slot():
+    from printer_msu.config.duet_config_gen import generate_homing_macros
+
+    data = copy.deepcopy(DUET_PROFILE_DATA)
+    data["axes"].append({
+        "name": "Z_T1", "controller": "duet", "channel": 3, "letter": "U",
+        "steps_per_mm": 500.0, "max_speed_mm_s": 100.0,
+        "max_accel_mm_s2": 800.0, "jerk_mm_s": 2.0,
+        "limits_mm": [0.0, 282.0], "homes_up": True,
+        "endstop": {"end": "min", "pin": "io6.in", "inverted": True},
+    })
+    files = generate_homing_macros(profile_from_dict(data))
+    assert "G1 H1 U-310 F1800" in files["homeu.g"]
+    calls = [l for l in files["homeall.g"].splitlines() if l.startswith("M98")]
+    assert calls == ['M98 P"homez.g"', 'M98 P"homeu.g"',
+                     'M98 P"homex.g"', 'M98 P"homey.g"']
+
+
+def test_homing_macros_are_ascii_lf():
+    from printer_msu.config.duet_config_gen import generate_homing_macros
+
+    for body in generate_homing_macros(make_duet_profile()).values():
+        body.encode("ascii")
+        assert "\r" not in body

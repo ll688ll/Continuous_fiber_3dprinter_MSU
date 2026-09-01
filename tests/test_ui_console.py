@@ -247,3 +247,84 @@ def test_setup_page_preview_generates_board_config(qapp, tmp_path):
     finally:
         win.close()
         qapp.processEvents()
+
+
+def test_setup_page_add_axis_and_save(qapp, tmp_path):
+    """Add-axis button: template row appears with a free channel/letter;
+    filling name + endstop pin and saving produces a valid v2 profile."""
+    from printer_testlib import DUET_PROFILE_DATA
+    from printer_msu.config.profile import load_profile
+
+    duet_path = tmp_path / "duet.json"
+    duet_path.write_text(json.dumps(copy.deepcopy(DUET_PROFILE_DATA)),
+                         encoding="utf-8")
+    win = PrintConsoleWindow()
+    try:
+        win.load_profile(str(duet_path))
+        page = win.setup_page
+        page.add_axis()
+        assert page.axes_table.rowCount() == 4
+        row = 3
+        from printer_msu.ui.setup_page import _AXIS_COLUMNS
+        cols = {key: i for i, (key, _) in enumerate(_AXIS_COLUMNS)}
+        assert page.axes_table.item(row, cols["channel"]).text() == "3"
+        assert page.axes_table.item(row, cols["letter"]).text() == "U"
+        page.axes_table.item(row, cols["endstop_pin"]).setText("io6.in")
+        assert page.save()
+        profile = load_profile(duet_path)
+        axis = profile.axis("Z_T1")
+        assert axis.channel == 3 and axis.letter == "U" and axis.homes_up
+        assert axis.endstop.pin == "io6.in"
+    finally:
+        win.close()
+        qapp.processEvents()
+
+
+def test_setup_page_add_tool_and_extruder_hardware(qapp, tmp_path):
+    from printer_testlib import DUET_PROFILE_DATA
+    from printer_msu.config.profile import load_profile
+
+    duet_path = tmp_path / "duet.json"
+    duet_path.write_text(json.dumps(copy.deepcopy(DUET_PROFILE_DATA)),
+                         encoding="utf-8")
+    win = PrintConsoleWindow()
+    try:
+        win.load_profile(str(duet_path))
+        page = win.setup_page
+        # extruder on tool 0 via the dialog-free entry point
+        page.apply_hardware_json(0, json.dumps({"extruder": {
+            "controller": "duet", "channel": 4, "letter": "E",
+            "steps_per_mm": 400.0, "max_speed_mm_s": 60.0,
+            "max_accel_mm_s2": 500.0, "jerk_mm_s": 2.0}}))
+        assert "extruder" in page.tools_table.item(0, 3).text()
+        assert page.save()
+        profile = load_profile(duet_path)
+        assert profile.tools[0].extruder.channel == 4
+        # bad key rejected
+        try:
+            page.apply_hardware_json(0, '{"laser": {}}')
+            raise AssertionError("bad key accepted")
+        except ValueError:
+            pass
+    finally:
+        win.close()
+        qapp.processEvents()
+
+
+def test_setup_page_preview_includes_homing_macros(qapp, tmp_path):
+    from printer_testlib import DUET_PROFILE_DATA
+
+    duet_path = tmp_path / "duet.json"
+    duet_path.write_text(json.dumps(copy.deepcopy(DUET_PROFILE_DATA)),
+                         encoding="utf-8")
+    win = PrintConsoleWindow()
+    try:
+        files = win_files = None
+        win.load_profile(str(duet_path))
+        files = win.setup_page.preview_files()
+        assert "/sys/msu_machine.g" in files
+        assert "/sys/homeall.g" in files and "/sys/homez.g" in files
+        assert 'M98 P"homez.g"' in files["/sys/homeall.g"]
+    finally:
+        win.close()
+        qapp.processEvents()

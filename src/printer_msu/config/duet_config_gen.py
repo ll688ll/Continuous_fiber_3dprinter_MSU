@@ -18,9 +18,19 @@ else on the write path.
 
 from __future__ import annotations
 
+import math
+
 from .profile import CONTROLLER_DUET, AxisDef, MachineProfile, ToolConfig
 
 BOARD_PATH = "/sys/msu_machine.g"
+
+#: homing feeds, mm/s — the values proven on hardware 2026-08-25: 30 mm/s
+#: fast approach (stopping distance at accel 1000 is v^2/2a = 0.45 mm, inside
+#: the prox sensor's window), 2.5 mm/s slow re-approach.
+HOME_FAST_MM_S = 30.0
+HOME_SLOW_MM_S = 2.5
+#: clear-off distance after each touch (the FMC-era clear_offset convention)
+HOME_CLEAR_MM = 5.0
 
 
 def _fmt(value: float) -> str:
@@ -135,3 +145,77 @@ def generate_machine_g(profile: MachineProfile) -> str:
             lines.append(f"M568 P{tool.tool_index} R0 S0 ; defined cold")
 
     return "\n".join(lines) + "\n"
+
+
+def _duet_axes(profile: MachineProfile) -> list[AxisDef]:
+    duet_ids = [c.id for c in profile.controllers if c.type == CONTROLLER_DUET]
+    axes: list[AxisDef] = []
+    for cid in duet_ids:
+        axes.extend(profile.axes_on(cid))
+    return axes
+
+
+def generate_homing_macros(profile: MachineProfile) -> dict[str, str]:
+    """Render ``homeall.g`` + one ``home<letter>.g`` per homable duet axis.
+
+    Pattern per axis (hardware-proven on the card macros of 2026-08-25),
+    all under G91: lift H2 clear-off -> H1 fast toward the minimum switch
+    (bounded past the span, never open-ended) -> H2 back off -> H1 slow
+    re-approach -> H2 clear. ``G1 H1``/``H2`` bypass M208 by design.
+
+    Only axes with a minimum-end endstop get a macro (SRS D11: every axis
+    homes to its negative switch; tool-Z negative is physically UP).
+    ``homeall.g`` homes tool-Z axes FIRST so the plane is cleared before
+    X/Y move. An axis without an endstop pin is skipped with a comment —
+    G28 on it will error on the board, which is the correct loud behavior.
+    """
+    axes = _duet_axes(profile)
+    if not axes:
+        raise ValueError("profile has no axes on a duet controller")
+    homable = [a for a in axes
+               if a.endstop is not None and a.endstop.pin
+               and a.endstop.end == "min"]
+    skipped = [a for a in axes if a not in homable]
+
+    files: dict[str, str] = {}
+    for a in homable:
+        span = a.limits_mm[1] - a.limits_mm[0]
+        bound = int(math.ceil((span * 1.05 + 5.0) / 10.0) * 10)
+        fast = _mm_min(min(HOME_FAST_MM_S, a.max_speed_mm_s))
+        slow = _mm_min(min(HOME_SLOW_MM_S, a.max_speed_mm_s))
+        # H2 hop feed: the proven macros used 10 mm/s on X/Y, 5 mm/s on Z
+        clear_feed = _mm_min(min(5.0 if a.homes_up else 10.0,
+                                 a.max_speed_mm_s))
+        letter = a.letter
+        up_note = " (negative is UP - machine zero at the top)" \
+            if a.homes_up else ""
+        body = [
+            f"; home{letter.lower()}.g - GENERATED from profile "
+            f"{profile.profile_name!r} - do not hand-edit",
+            f"; homes {a.name} to its minimum switch{up_note}",
+            "; regenerate + upload with: printer-msu apply-config",
+            "G91",
+            f"G1 H2 {letter}{_fmt(HOME_CLEAR_MM)} F{clear_feed}",
+            f"G1 H1 {letter}-{bound} F{fast} ; bounded past the "
+            f"{_fmt(span)} mm span",
+            f"G1 H2 {letter}{_fmt(HOME_CLEAR_MM)} F{clear_feed}",
+            f"G1 H1 {letter}-10 F{slow} ; slow re-approach",
+            f"G1 H2 {letter}{_fmt(HOME_CLEAR_MM)} F{clear_feed}",
+            "G90",
+        ]
+        files[f"home{letter.lower()}.g"] = "\n".join(body) + "\n"
+
+    ordered = ([a for a in homable if a.homes_up]
+               + [a for a in homable if not a.homes_up])
+    all_lines = [
+        f"; homeall.g - GENERATED from profile {profile.profile_name!r} "
+        f"- do not hand-edit",
+        "; order: tool-Z axes first (SRS D11 - clear the print plane), "
+        "then the rest",
+    ]
+    all_lines += [f'M98 P"home{a.letter.lower()}.g"' for a in ordered]
+    for a in skipped:
+        all_lines.append(f"; axis {a.name} ({a.letter}) has no minimum "
+                         f"endstop - not homed here")
+    files["homeall.g"] = "\n".join(all_lines) + "\n"
+    return files

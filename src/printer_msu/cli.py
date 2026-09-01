@@ -196,14 +196,19 @@ def _attach_job_log(log_path: Path) -> None:
 
 # -------------------------------------------------------------- apply-config
 def _cmd_apply_config(args) -> int:
-    """Generate the board include from the profile; upload on request (D6)."""
-    from .config.duet_config_gen import BOARD_PATH, generate_machine_g
+    """Generate the board include + homing macros; upload on request (D6)."""
+    from .config.duet_config_gen import (BOARD_PATH, generate_homing_macros,
+                                         generate_machine_g)
     from .config.profile import CONTROLLER_DUET
 
     profile = load_profile(args.profile)
     text = generate_machine_g(profile)
+    macros = generate_homing_macros(profile)
     print(f"; generated for {BOARD_PATH}:")
     print(text)
+    for name, body in macros.items():
+        print(f"; generated for /sys/{name}:")
+        print(body)
     if args.dry_run:
         return EXIT_OK
 
@@ -219,6 +224,9 @@ def _cmd_apply_config(args) -> int:
     client.connect()
     client.upload(BOARD_PATH, text.encode("ascii"))
     print(f"uploaded {BOARD_PATH} (CRC-verified)")
+    for name, body in macros.items():
+        client.upload(f"/sys/{name}", body.encode("ascii"))
+        print(f"uploaded /sys/{name} (CRC-verified)")
     print("NOTE: config.g must contain  M98 P\"/sys/msu_machine.g\"  once "
           "(one-time manual edit),")
     print("      and the board needs a reset (M999) to apply changes: "
