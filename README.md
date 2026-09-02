@@ -131,6 +131,23 @@ moves included (library v1.1 `move_line`).
 pytest            # printer core + motion library (301 tests; Duet paths run against an in-process fake board)
 ```
 
+### Packaging a release
+
+`packaging/` holds the PyInstaller spec and the build driver. One command
+runs the tests, builds both wheels, freezes the one-dir Windows bundle
+(`printer-msu.exe` console + `printer-msu-ui.exe` windowed), adds configs,
+board macros, docs and a `RELEASE_MANIFEST.json` with SHA-256 hashes, smoke
+tests the frozen executables and zips the result into `dist/`:
+
+```bash
+pip install -e ".[ui,sim,dev,build]" -c constraints.txt
+python packaging/build_release.py
+```
+
+The procedure around it (verification on the machine, tagging, the GitHub
+Release) is in [`packaging/README.md`](packaging/README.md). CI runs the
+suite on Windows for every push and opens a draft release for `v*` tags.
+
 ### Working with the Duet
 
 The board is at **192.168.0.40** (static — the lab segment has no DHCP server;

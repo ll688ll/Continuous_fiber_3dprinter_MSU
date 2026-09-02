@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    name: tests (windows, py3.13)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e libs/fmc-motion[dev] -c constraints.txt
+          python -m pip install -e ".[ui,dev]" -c constraints.txt
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q -p no:cacheprovider
+
+  release-bundle:
+    name: release bundle (tag)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e libs/fmc-motion -c constraints.txt
+          python -m pip install -e ".[ui,sim,build]" -c constraints.txt
+      - name: Build bundle, wheels, manifest, zip (tests ran in the previous job)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python packaging/build_release.py --skip-tests
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Copy-Item dist/*.zip release-assets/
+          Copy-Item dist/wheels/*.whl release-assets/
+          Copy-Item dist/printer_msu-*-win64/RELEASE_MANIFEST.json release-assets/
+          Get-ChildItem release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ github.ref_name }}
+          path: release-assets/*
+      - name: Draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: printer_msu ${{ github.ref_name }}
+          files: release-assets/*

@@ -40,6 +40,9 @@ on X, Y and Z_T0. Windows host.
   single report explicitly. A read-only app folder falls back to the
   per-user state directory with a warning.
 - MIT license (`LICENSE`, copy in `libs/fmc-motion/`).
+- Release tooling under `packaging/`: PyInstaller spec (two executables,
+  one shared runtime), build driver with manifest, smoke test and zip;
+  GitHub Actions workflow (tests on Windows, draft release on `v*` tags).
 - `constraints.txt` pinning the tested environment (PySide6 6.11.1, pytest
   9.1.1 on Python 3.13).
 

@@ -31,6 +31,9 @@ sim = [
 dev = [
   "pytest>=7",
 ]
+build = [
+  "pyinstaller>=6.10",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
