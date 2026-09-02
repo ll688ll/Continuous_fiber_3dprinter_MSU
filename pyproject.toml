@@ -1,18 +1,22 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "printer_msu"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Multi-module 3D printer control program (PySide6 UI, controller plugins, G-code streaming)."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
-# Core (controllers, G-code, services) has no GUI dependency; the PySide6 UI
-# is an extra so headless/library consumers stay lightweight (PRD Q7).
-# fmc-motion is the local motion library: install it first
-# (`pip install -e libs/fmc-motion`), it is not on PyPI.
-dependencies = ["fmc-motion"]
+# The core (Duet backend, G-code, services) is stdlib-only. Everything else is
+# an extra so headless/library consumers stay lightweight (PRD Q7):
+#   ui   the PySide6 desktop console
+#   sim  the FMC simulator backend behind configs/printer_sim*.json and the
+#        sim tests. fmc-motion lives in libs/fmc-motion and is NOT on PyPI:
+#        install it from there (dev) or from its wheel with --find-links.
+dependencies = []
 
 [project.scripts]
 printer-msu = "printer_msu.cli:main"
@@ -21,6 +25,9 @@ printer-msu = "printer_msu.cli:main"
 ui = [
   "PySide6>=6.6",
 ]
+sim = [
+  "fmc-motion==1.1.1",
+]
 dev = [
   "pytest>=7",
 ]
@@ -28,9 +35,8 @@ dev = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+[tool.setuptools.dynamic]
+version = {attr = "printer_msu.__version__"}
+
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-"printer_msu.controllers.motion.fmc006ge31" = ["vendor/*"]
-

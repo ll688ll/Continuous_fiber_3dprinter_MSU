@@ -25,6 +25,7 @@ from .core.gcode.interpreter import interpret
 from .core.gcode.parser import parse_file
 from .core.model.print_job import PrintJobState, TERMINAL_STATES
 from .errors import PrinterError
+from .paths import default_report_dir
 from .services.print_service import (
     JobEvent,
     PrintJobRunner,
@@ -128,7 +129,8 @@ class _ConsoleProgress:
 def _cmd_print(args) -> int:
     profile = _load_profile(args)
     job_id = _dt.datetime.now().strftime("job-%Y%m%d-%H%M%S")
-    report_path = Path(args.report) if args.report else Path("logs") / f"{job_id}.json"
+    report_path = (Path(args.report) if args.report
+                   else default_report_dir() / f"{job_id}.json")
     log_path = report_path.with_suffix(".log")
     _attach_job_log(log_path)
 
@@ -153,6 +155,7 @@ def _cmd_print(args) -> int:
         runner.subscribe(_ConsoleProgress(job_id))
         print(f"[{job_id}] {profile.profile_name} "
               f"({profile.mode_label}) - Ctrl-C stops, twice = e-stop")
+        print(f"[{job_id}] report: {report_path}")
         runner.start()
         _run_print_with_interrupts(runner)
         return EXIT_OK if runner.state is PrintJobState.COMPLETED else EXIT_FAILED
@@ -337,7 +340,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     prnt = sub.add_parser("print", help="stream a file to the machine")
     add_common(prnt)
-    prnt.add_argument("--report", help="job report path (default logs/<job>.json)")
+    prnt.add_argument("--report", help="job report path (default: <app dir>/logs/<job>.json; "
+                       "PRINTER_MSU_LOG_DIR overrides the dir)")
     prnt.add_argument("--execution", choices=["preload", "stream"],
                       help="Duet job execution mode (default: profile "
                            "policies.execution; ignored on FMC)")

@@ -12,3 +12,8 @@ logs/
 /lib_line_check_results.json
 /device_para.json
 /direction_check_results.json
+/shakeout_report.json
+
+# packaging outputs
+build/
+dist/

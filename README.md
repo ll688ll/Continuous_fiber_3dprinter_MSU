@@ -70,7 +70,6 @@ Customized multi-axis 3D printer control software (desktop) for a multi-module p
   - `core/`: G-code parsing/interpreting, job state machine, routing
   - `services/`: PrintService/ToolService/StatusService/etc.
   - `controllers/`: HAL interfaces + controller plugins
-    - `motion/fmc006ge31/vendor/`: vendor DLL/headers/libs
 - **`examples/`**: standalone scripts (hardware demos)
 - **`tests/`**: unit tests (module-by-module where possible)
 
@@ -79,9 +78,14 @@ Customized multi-axis 3D printer control software (desktop) for a multi-module p
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e libs/fmc-motion[dev]
-pip install -e .[ui,dev]
+pip install -e libs/fmc-motion[dev] -c constraints.txt
+pip install -e .[ui,dev] -c constraints.txt
 ```
+
+`constraints.txt` pins the tested versions (PySide6 6.11.1, pytest 9.1 on
+Python 3.13). `fmc-motion` is only needed by the simulator profiles and the
+sim tests; on a wheel install it is the `sim` extra
+(`pip install "printer_msu[ui,sim]" --find-links <folder with both wheels>`).
 
 Validate and print a G-code file (motion-only v1, sim mode — no hardware
 needed):
@@ -109,6 +113,12 @@ and offers connect, check, start/pause/resume/stop/e-stop, live axis status,
 and a log tail. Design docs: `docs/PRD_Printer_App_v2.md` (current), `docs/PRD_Printer_App.md`
 (v1 record) and `docs/PRD_Motion_Control_Library.md` (motion library).
 
+Job reports (`job-*.json` plus a `.log` twin) go to `logs/` under the app:
+the repository root from a checkout, the bundle folder when packaged. The
+location does not depend on the working directory. `PRINTER_MSU_LOG_DIR`
+overrides it, and `printer-msu print --report <path>` names one report
+explicitly. Both the CLI and the Print tab print the path when a job starts.
+
 The PySide6 UI is an optional extra (`.[ui]`); the core and the motion
 library install without it. The printer core reaches the motion hardware via
 `printer_msu.controllers.motion.fmc_motion_adapter.FmcMotionAdapter`, which
@@ -118,7 +128,7 @@ moves included (library v1.1 `move_line`).
 ### Tests
 
 ```bash
-pytest            # printer core + motion library (274 tests; Duet paths run against an in-process fake board)
+pytest            # printer core + motion library (301 tests; Duet paths run against an in-process fake board)
 ```
 
 ### Working with the Duet
@@ -141,3 +151,11 @@ To preload instead of streaming, upload with `rr_upload` and run with `M32`;
 - The FMC006GE31 demo script is in `examples/fmc006ge31_basic_motion.py`
   (Windows-only). Historical — that controller is retired.
 
+### License
+
+MIT, see [`LICENSE`](LICENSE). Third-party material keeps its own terms and is
+not covered by it: the FMC006GE31 vendor DLL, header and import library under
+`libs/fmc-motion/src/fmc_motion/vendor/` and the vendor documents under
+`docs/`, whose redistribution terms should be confirmed before publishing
+them; and the RepRapFirmware configuration under `firmware/duet3_6xd/`, which
+targets Duet3D's firmware.

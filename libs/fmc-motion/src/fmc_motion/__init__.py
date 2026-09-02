@@ -52,7 +52,7 @@ from .interface import (
 from .sim import SimMotionController
 from .fmc006ge31 import FMC006GE31Controller
 
-__version__ = "0.2.1"  # v1.1.1: homing clear_offset + silent-ignore detection
+__version__ = "1.1.1"  # hardware-validated final; the FMC006GE31 was retired 2026-08-25
 
 ConfigLike = Union[str, Path, dict, ControllerConfig]
 

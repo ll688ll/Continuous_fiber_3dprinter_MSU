@@ -30,7 +30,7 @@ The System focuses on **motion + job execution**, and in v1 explicitly includes 
 - **Extruder axis (E)**: the filament feed channel associated with the active tool module (implemented via a Tool Controller channel in v1).
 
 ### 1.4 References
-- FMC006GE31 controller header `src/printer_msu/controllers/motion/fmc006ge31/vendor/FMC006GE31.h` (vendor API example present in repository).
+- FMC006GE31 controller header `libs/fmc-motion/src/fmc_motion/vendor/win64/FMC006GE31.h` (vendor API example present in repository).
 
 ### 1.5 Document Overview
 Sections cover system overview, functional requirements, external interfaces, non-functional requirements, and appendices describing architecture and data models.

@@ -36,8 +36,11 @@ it there — nothing on the host can disturb it. Streaming
 (`policies.execution: "stream"` or CLI `--execution stream`, ≈ +0.4 %) keeps
 the host in the loop; use it only when that is the point.
 
-Every job writes a report to `logs/job-*.json` (board-measured duration,
-profile snapshot, skipped commands, end reason).
+Every job writes a report, `job-*.json` plus a `.log` twin, to `logs/` under
+the app folder (the repository root from a checkout; `PRINTER_MSU_LOG_DIR`
+overrides it). The Print tab log shows the path when a job starts.
+Contents: board-measured duration, profile snapshot, skipped commands, end
+reason.
 
 ## Manual tab
 

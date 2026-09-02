@@ -41,6 +41,7 @@ from ..core.gcode.analysis import analyze
 from ..core.gcode.interpreter import interpret
 from ..core.gcode.parser import parse_file
 from ..core.model.print_job import PrintJobState, TERMINAL_STATES
+from ..paths import default_report_dir
 from ..machine import build_adapter
 from ..services.print_service import PrintJobRunner, run_preflight
 from .bridge import JobBridge, StatusPoller, TaskRunner, UiLogHandler
@@ -67,7 +68,7 @@ class PrintConsoleWindow(QMainWindow):
         self.adapter = None
         self.runner: Optional[PrintJobRunner] = None
         self.gcode_path: Optional[Path] = None
-        self.report_dir = Path("logs")
+        self.report_dir = default_report_dir()
         self._estop_active = False
         #: count of in-flight 'start'/'check' preflight tasks — the manual
         #: page refuses to dispatch while any is pending (job_active only
@@ -455,6 +456,7 @@ class PrintConsoleWindow(QMainWindow):
         self.runner.subscribe(self.bridge.dispatch)
         self.progress_bar.setValue(0)
         self._log(f"job {job_id} starting ({self.profile.mode_label} mode)")
+        self._log(f"report: {report_path}")
         self.runner.start()
 
     # ------------------------------------------------------------ job events
