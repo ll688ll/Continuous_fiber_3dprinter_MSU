@@ -11,13 +11,17 @@ the card, and line-by-line streaming from a master machine (a 1.2 % penalty).
 Wiring, drive parameters, measurements and the traps found along the way:
 [`firmware/duet3_6xd/README.md`](firmware/duet3_6xd/README.md).
 
-**Update (2026-08-30): the Duet port is IMPLEMENTED (software).**
-`printer_msu` v2 drives the Duet over HTTP: multi-controller machine
-profiles, generated board config with drift checking, preload/stream job
-execution, tool functions (heater/thermocouple/extruder/fan, capability-
-gated), an offline capability preflight, and a tabbed UI with a machine
-setup page and plane calibration — see `docs/PRD_Printer_App_v2.md`.
-Hardware shakeout on the lab machine is the next step (PRD v2 §4).
+**Update (2026-09-01): the Duet port is HARDWARE-PROVEN.** `printer_msu` v2
+drives the Duet over HTTP: multi-controller machine profiles, generated board
+config + homing macros with connect-time drift checking, preload/stream job
+execution (**both modes verified through the app**: 1964 s / 1972.5 s on the
+reference Cura file — the app-path baselines), capability-gated tool
+functions, an offline capability preflight, and a three-tab UI — **Print,
+Manual (per-axis jog/go-to/home), Setup (axis/tool editing, add-axis and
+add-extruder, board config apply, plane calibration — captured: T0 at
+94.4 mm)**. Docs: **[`docs/UI_Guide.md`](docs/UI_Guide.md)** (how to operate
+it), `docs/PRD_Printer_App_v2.md` (what was built and why). Remaining
+hardware work is the safety-gated tool bring-up (PRD v2 §4).
 
 **Safety state unchanged:** no e-stop chain, no hardware maximum limits (soft
 limits only, by decision), drive fault lines unwired — a servo alarm is still
@@ -45,6 +49,7 @@ Customized multi-axis 3D printer control software (desktop) for a multi-module p
 ### Repository layout (matches the SRS architecture)
 
 - **`docs/`**: specifications and design docs
+  - `docs/UI_Guide.md` — operator guide (UI tabs, CLI, workflows)
   - `docs/Software_SRS.md`
   - `docs/PRD_Motion_Control_Library.md`
 - **`firmware/duet3_6xd/`**: the live machine. Configuration that runs *on* the

@@ -9,6 +9,23 @@ the branch is `claude/duet3-controller-axis-fddf1a`, not merged to `main`.
 
 ---
 
+## Done (2026-08-30 … 2026-09-01)
+
+- [x] `printer_msu` v2 on the Duet: schema v2, HTTP backend, both execution
+      modes hardware-verified through the app (preload 1964 s / stream
+      1972.5 s on the reference file — the app-path baselines)
+- [x] Board config + homing macros GENERATED from the profile (`apply-config`
+      / Setup-tab Apply); `config.g` reduced to network/drivers/safety + one
+      `M98` include; drift check on every connect
+- [x] Host-side soft-limit refusal (RRF `M564 S1` silently clamps — found on
+      shakeout, fixed + regression-tested); shakeout 6/6 green
+- [x] Plane calibration run (T0 captured at 94.4 mm, mid-air; re-capture on a
+      real print surface later)
+- [x] UI: Print / **Manual** (jog, go-to, per-axis home, review-hardened
+      interlocks) / Setup (add/remove axis+tool, extruder/heater dialog)
+- [x] Operator guide: `docs/UI_Guide.md`
+- [x] Pushed to origin (keep pushing after commits)
+
 ## Done (2026-08-25)
 
 - [x] Duet 3 6XD bring-up — X/Y/Z_T0 on drivers 0/1/2, Delta ASD-B3 drives
@@ -104,7 +121,14 @@ vertex-dense path the corner speed limit plausibly dominates what is left.
 
 ## 3 — Tool controller
 
-### [ ] Size, order and wire the Duet 3 Toolboard 1LC
+### [SUPERSEDED by D-V2-2] ~~Size, order and wire the Duet 3 Toolboard 1LC~~
+
+Decision 2026-08-30: tool hardware goes on the **6XD mainboard** —
+extruder on a spare driver, heater on a mainboard output, thermocouple
+via daughterboard. No CAN toolboard this phase. (Reconsider only if
+the fiber head needs more actuation than mainboard channels offer.)
+
+### original item (kept for reference)
 
 Chosen route. Because CAN-FD sync happens inside RRF's motion planner, it works
 identically whether G-code is preloaded or streamed — **the mode choice and the
@@ -123,7 +147,7 @@ tool architecture are independent decisions.**
 (`tfree`/`tpre`/`tpost`) for the per-tool Z arrangement. Evaluation item V1 —
 the per-tool-Z pattern was never confirmed on the Duet forum.
 
-### [~] Calibrate the real Z bed offset (SRS Q3) — workflow ready (`printer-msu calibrate plane`), lab run pending
+### [x] Calibrate the Z print plane (SRS Q3) — DONE 2026-09-01 (T0 = 94.4 mm, mid-air; re-capture on the real print surface when it exists)
 
 `z_bed_offset_mm = 100` is a **placeholder for mid-air dry runs only**. The real
 value has to be measured before anything touches a bed. Machine zero is at the
@@ -176,7 +200,7 @@ Duet port lands, decide: archive, or keep as the sim backend.
 
 ## 5 — Housekeeping
 
-### [ ] Merge decision for `claude/duet3-controller-axis-fddf1a`
+### [x] Merge decision — merged to `main` and PUSHED to origin (2026-09-01)
 
 Six commits, `main` is still at `ffff721`. Also unmerged and reference-only:
 `claude/m6-auto-run-track-a42d1f` (M6, closed — do not merge) and
