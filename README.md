@@ -153,6 +153,13 @@ suite on Windows for every push and opens a draft release for `v*` tags.
 The board is at **192.168.0.40** (static — the lab segment has no DHCP server;
 see the firmware README). Duet Web Control is at <http://192.168.0.40>.
 
+The app can also reach the board over **USB serial** instead of Ethernet:
+`"transport": "usb"` in the profile's Duet `connection` (with `"port":
+"auto"` or a COM port), the Link row in the Print tab, or `--transport usb`
+on any command. `printer-msu ports` shows which COM port is the Duet. It needs
+the `usb` extra (`pyserial`), which the Windows bundle already contains. See
+`docs/UI_Guide.md` for how the two links differ.
+
 ```bash
 python firmware/duet3_6xd/cura_to_msu.py sliced.gcode job.gcode
 ```

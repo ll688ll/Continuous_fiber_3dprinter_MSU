@@ -47,13 +47,10 @@ def build_machine(profile: MachineProfile) -> Machine:
                        motion_controller_id=owner.id)
 
     if owner.type == CONTROLLER_DUET:
+        from .controllers.motion.duet import make_duet_client
         from .controllers.motion.duet.adapter import DuetMotionAdapter
-        from .controllers.motion.duet.client import DuetClient
 
-        conn = owner.connection
-        client = DuetClient(conn["host"],
-                            password=conn.get("password", ""),
-                            timeout_s=float(conn.get("http_timeout_s", 20.0)))
+        client = make_duet_client(owner.connection)
         adapter = DuetMotionAdapter(client, profile.axes_on(owner.id))
         tool_controllers: dict[str, object] = {}
         if any(part is not None and part.controller == owner.id

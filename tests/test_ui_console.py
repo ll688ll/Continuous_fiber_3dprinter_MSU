@@ -102,6 +102,8 @@ def test_full_print_flow(qapp, window, tmp_path):
 
     positions = window.adapter.get_status().positions
     assert positions["X"] == pytest.approx(5.0, abs=0.05)
+    # the report is written just AFTER the state flips to COMPLETED
+    assert pump(qapp, lambda: list((tmp_path / "logs").glob("job-*.json")))
     report_files = list((tmp_path / "logs").glob("job-*.json"))
     assert len(report_files) == 1
     report = json.loads(report_files[0].read_text(encoding="utf-8"))
@@ -468,3 +470,43 @@ def test_disconnect_failure_still_disables_manual_page(qapp, window):
     window.disconnect_machine()
     assert pump(qapp, lambda: not page._connected)
     assert not page.estop_btn.isEnabled()
+
+
+def test_link_row_follows_profile_and_overrides_for_the_session(
+        qapp, tmp_path, monkeypatch):
+    """Duet profiles get an Ethernet/USB selector; the choice reaches the
+    adapter build but never the profile file."""
+    from printer_testlib import DUET_PROFILE_DATA
+    import printer_msu.ui.print_console as pc
+
+    path = tmp_path / "duet.json"
+    path.write_text(json.dumps(DUET_PROFILE_DATA))
+    win = PrintConsoleWindow(profile_path=str(path), transport="usb",
+                             port="COM5")
+    try:
+        assert win.link_choice() == ("usb", "COM5")
+        assert win.link_combo.isEnabled() and win.port_edit.isEnabled()
+
+        built = []
+
+        def fake_build(profile):
+            built.append(profile)
+            raise RuntimeError("no hardware in tests")
+
+        monkeypatch.setattr(pc, "build_adapter", fake_build)
+        win.connect_machine()
+        assert pump(qapp, lambda: built and
+                    win.conn_label.text() == "connection failed")
+        duet = built[0].controller("duet")
+        assert duet.duet_transport == "usb" and duet.duet_port == "COM5"
+        assert "transport" not in json.loads(path.read_text())[
+            "controllers"][0]["connection"]
+
+        win.set_link("http")
+        assert not win.port_edit.isEnabled()
+    finally:
+        win.close()
+
+
+def test_link_row_disabled_for_fmc_profiles(qapp, window):
+    assert not window.link_combo.isEnabled()

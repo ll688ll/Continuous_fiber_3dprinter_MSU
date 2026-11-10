@@ -11,14 +11,19 @@ machine, 2026-08-25):
   positions zero, and the board drops one connection cycle;
 * ``rr_upload`` verifies the crc32 query parameter against the body.
 
+``FakeUsbDuet`` puts the same board behind a USB serial link (RRF's serial
+dialect: replies then ``ok``), so both transports test against one model.
+
 Deterministic: ``state.status`` reads "processing" for ``busy_reads`` polls
 after each motion command, then "idle" — no wall-clock involved.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import time
 import urllib.error
 import urllib.parse
 import zlib
@@ -272,3 +277,152 @@ class ScriptedDuetBoard:
                 return json.dumps({"err": 1}).encode()
         self.files[name] = data
         return json.dumps({"err": 0}).encode()
+
+
+# =================================================================== USB side
+class FakeUsbDuet:
+    """The same ScriptedDuetBoard behind a USB serial link.
+
+    Use as ``DuetSerialClient(link_factory=fake)``: ``fake(port, baud)``
+    returns a ``FakeSerialLink``. Speaks RRF's serial dialect: reply lines,
+    then ``ok`` per command; ``M115``/``M409``/``M28``-``M29``/``M38``/``M20``.
+
+    Fault injection: ``drop_ok`` (commands whose ``ok`` never comes),
+    ``ack_file_lines`` (does M28 file mode ack each line), ``refuse_m28``,
+    ``corrupt_upload``, ``firmware_name``, ``present`` (device enumerated).
+    M999 kills the open link like the real re-enumerating USB device.
+    """
+
+    FIRMWARE = ("FIRMWARE_NAME: RepRapFirmware for Duet 3 MB6XD "
+                "FIRMWARE_VERSION: 3.6.1 ELECTRONICS: Duet 3 MB6XD v1.02")
+
+    def __init__(self, board: Optional[ScriptedDuetBoard] = None) -> None:
+        self.board = board or ScriptedDuetBoard()
+        self.out: list[bytes] = []
+        self.received: list[str] = []          # every line that arrived
+        self.opened: list[str] = []            # ports opened, in order
+        self.link: Optional["FakeSerialLink"] = None
+        self.present = True
+        self.firmware_name = self.FIRMWARE
+        self.ack_file_lines = True
+        self.refuse_m28 = False
+        self.corrupt_upload = False
+        self.drop_ok: set[str] = set()         # exact lines; ok dropped once
+        self.writing: Optional[str] = None
+        self._file_lines: list[str] = []
+
+    def __call__(self, port: str, baud: int) -> "FakeSerialLink":
+        if not self.present:
+            raise OSError(f"could not open port {port!r}: FileNotFoundError")
+        self.opened.append(port)
+        self.out = []
+        self.link = FakeSerialLink(self)
+        return self.link
+
+    # ---------------------------------------------------------------- output
+    def emit(self, *lines: str) -> None:
+        self.out.extend(f"{ln}\n".encode() for ln in lines)
+
+    def ok(self, line: str) -> None:
+        if line in self.drop_ok:
+            self.drop_ok.discard(line)
+            return
+        self.emit("ok")
+
+    @staticmethod
+    def _quoted(line: str) -> str:
+        m = re.search(r'"([^"]*)"', line)
+        return m.group(1) if m else ""
+
+    @staticmethod
+    def _card_key(path: str) -> str:
+        return path[2:] if path.startswith("0:") else path
+
+    # ------------------------------------------------------------- dispatch
+    def handle(self, line: str) -> None:
+        line = line.strip()
+        if not line:
+            return
+        self.received.append(line)
+        code = line.split()[0].upper()
+        if self.writing is not None and code != "M29":
+            self._file_lines.append(line)
+            if self.ack_file_lines:
+                self.ok(line)
+            return
+        if code == "M115":
+            self.emit(self.firmware_name)
+        elif code == "M409":
+            key = self._quoted(line)
+            self.emit(self.board._model(key).decode())
+        elif code == "M28":
+            path = self._quoted(line)
+            if self.refuse_m28:
+                self.emit(f"Error: Can't open file {path} for writing.")
+            else:
+                self.writing = path
+                self._file_lines = []
+                self.emit(f"Writing to file: {path}")
+        elif code == "M29":
+            data = ("\n".join(self._file_lines) + "\n").encode() \
+                if self._file_lines else b""
+            if self.corrupt_upload:
+                data = data.replace(b"X", b"Y", 1)
+            self.board.files[self._card_key(self.writing or "")] = data
+            self.writing = None
+            self.emit("Done saving file.")
+        elif code == "M38":
+            key = self._card_key(self._quoted(line))
+            if key not in self.board.files:
+                self.emit(f"Error: M38: File {key} not found")
+            else:
+                digest = hashlib.sha1(self.board.files[key]).hexdigest()
+                self.emit(f"SHA1 hash of file {key}: {digest}")
+        elif code == "M20":
+            names = [n.rsplit("/", 1)[-1] for n in self.board.files]
+            self.emit(json.dumps({"dir": self._quoted(line), "first": 0,
+                                  "files": names + ["*msu_jobs"], "next": 0}))
+        elif code == "M999":
+            self.board._execute("M999")
+            if self.link is not None:
+                self.link.dead = True     # the device re-enumerates
+            return
+        else:
+            self.board._execute(line)
+            if self.board.pending_reply:
+                self.emit(*self.board.pending_reply)
+                self.board.pending_reply = []
+        self.ok(line)
+
+
+class FakeSerialLink:
+    """``serial.Serial`` stand-in: readline() returns b"" when idle."""
+
+    def __init__(self, device: FakeUsbDuet) -> None:
+        self.device = device
+        self.closed = False
+        self.dead = False
+        self._partial = b""
+
+    def _check(self) -> None:
+        if self.closed or self.dead:
+            raise OSError("ClearCommError failed (PermissionError: the "
+                          "device does not recognize the command)")
+
+    def write(self, data: bytes) -> int:
+        self._check()
+        buf = self._partial + data
+        *complete, self._partial = buf.split(b"\n")
+        for raw in complete:
+            self.device.handle(raw.decode("ascii", "replace"))
+        return len(data)
+
+    def readline(self) -> bytes:
+        self._check()
+        if self.device.out and self.device.link is self:
+            return self.device.out.pop(0)
+        time.sleep(0.001)
+        return b""
+
+    def close(self) -> None:
+        self.closed = True

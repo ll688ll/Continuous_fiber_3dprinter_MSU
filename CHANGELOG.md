@@ -8,6 +8,42 @@ FMC006GE31 motion library, kept as the simulator backend).
 
 ## [Unreleased]
 
+## printer_msu 1.1.0 - 2026-11-09
+
+### Added
+- **USB serial connection mode** for the Duet, as an alternative to
+  Ethernet. Set `"transport": "usb"` in the Duet controller's `connection`
+  block (`"port": "auto"` finds the board by its USB ID, or name a COM port),
+  pick **USB serial** in the new Link row of the Print tab, or pass
+  `--transport usb` / `--port COM3` to any machine command. Everything works
+  over either link: connect with the drift check, status, homing, jogging,
+  e-stop and M999 recovery, preload and stream printing, and Setup's Apply.
+  The override is for the session only; the profile file is not changed.
+- `printer-msu ports` lists serial ports and marks the Duet.
+- `usb` extra (`pyserial`); the Windows bundle includes it.
+
+### How USB differs from Ethernet
+- Each line waits for the board's `ok`, which is the flow control, so there
+  is no buffer accounting. Motion is never re-sent after a link failure.
+- Status reads use `M409` and reopen the port if the USB device
+  re-enumerated. M999 always re-enumerates it; the app reconnects.
+- E-stop (`M112`) is written immediately, never queued behind a running
+  command such as homing.
+- Uploads (preload jobs, board config) use `M28`/`M29` and are verified with
+  an `M38` SHA-1 check. Comments are stripped first, so files written over
+  USB carry no comments. No file line is sent until the board confirms it
+  is writing a file. `rr_download` has no USB equivalent.
+
+### Known limitations
+- The USB transport is verified against a simulated board only. The bench
+  checklist in `docs/TODO.md` (section 4) must pass on the real 6XD before
+  printing over USB.
+- The safety limitations of 1.0.0 are unchanged: no e-stop chain, drive
+  fault lines unwired, soft limits only, heater power hard-gated.
+- USB on the lab workstation has dropped out before. Prefer Ethernet for
+  long prints, and preload over stream: a preloaded job keeps running on
+  the board if the cable drops.
+
 ## printer_msu 1.0.0 - 2026-09-01
 
 First tagged release. Target machine: the MSU continuous-fiber printer on a

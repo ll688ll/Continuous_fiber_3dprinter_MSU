@@ -3,7 +3,12 @@
 Subcommands:
 - ``check <file> --profile <p>``  parse + interpret + preflight; exit 0 = pass
 - ``print <file> --profile <p>``  stream the file (sim or real); exit 0 = completed
-- ``ui``                          launch the (placeholder) PySide6 window
+- ``apply-config``, ``calibrate plane``  board config / plane offset (Duet)
+- ``ports``                       list serial ports; marks the Duet on USB
+- ``ui``                          launch the PySide6 window
+
+Machine commands take ``--transport {http,usb}`` / ``--port`` to override the
+profile's Duet link for one run (the profile file is not changed).
 
 stdlib only; PySide6 stays an optional extra.
 """
@@ -19,7 +24,12 @@ import time
 from pathlib import Path
 from typing import Optional, Sequence
 
-from .config.profile import CONTROLLER_FMC, MachineProfile, load_profile
+from .config.profile import (
+    CONTROLLER_FMC,
+    MachineProfile,
+    load_profile,
+    with_duet_transport,
+)
 from .core.gcode.analysis import analyze
 from .core.gcode.interpreter import interpret
 from .core.gcode.parser import parse_file
@@ -40,8 +50,19 @@ EXIT_PREFLIGHT = 2
 EXIT_USAGE = 3
 
 
+def _link_override(profile: MachineProfile, args) -> MachineProfile:
+    """Apply --transport/--port (in memory only)."""
+    transport = getattr(args, "transport", None)
+    port = getattr(args, "port", None)
+    if port and not transport:
+        transport = "usb"  # a port only makes sense for USB
+    if transport:
+        profile = with_duet_transport(profile, transport, port)
+    return profile
+
+
 def _load_profile(args) -> MachineProfile:
-    profile = load_profile(args.profile)
+    profile = _link_override(load_profile(args.profile), args)
     if getattr(args, "mode", None):
         if profile.motion is None:
             raise PrinterError(
@@ -204,7 +225,7 @@ def _cmd_apply_config(args) -> int:
                                          generate_machine_g)
     from .config.profile import CONTROLLER_DUET
 
-    profile = load_profile(args.profile)
+    profile = _link_override(load_profile(args.profile), args)
     text = generate_machine_g(profile)
     macros = generate_homing_macros(profile)
     print(f"; generated for {BOARD_PATH}:")
@@ -219,17 +240,17 @@ def _cmd_apply_config(args) -> int:
                 None)
     if duet is None:
         raise PrinterError("profile has no duet controller to apply to")
-    from .controllers.motion.duet.client import DuetClient
+    from .controllers.motion.duet import make_duet_client
 
-    client = DuetClient(duet.connection["host"],
-                        password=duet.connection.get("password", ""),
-                        timeout_s=float(duet.connection.get("http_timeout_s", 20)))
+    client = make_duet_client(duet.connection)
     client.connect()
+    check = ("SHA-1-verified, comments stripped" if duet.duet_transport == "usb"
+             else "CRC-verified")
     client.upload(BOARD_PATH, text.encode("ascii"))
-    print(f"uploaded {BOARD_PATH} (CRC-verified)")
+    print(f"uploaded {BOARD_PATH} ({check}) via {client.base}")
     for name, body in macros.items():
         client.upload(f"/sys/{name}", body.encode("ascii"))
-        print(f"uploaded /sys/{name} (CRC-verified)")
+        print(f"uploaded /sys/{name} ({check})")
     print("NOTE: config.g must contain  M98 P\"/sys/msu_machine.g\"  once "
           "(one-time manual edit),")
     print("      and the board needs a reset (M999) to apply changes: "
@@ -238,11 +259,12 @@ def _cmd_apply_config(args) -> int:
         try:
             client.send_emergency("M999")
         except Exception:
-            pass  # reset kills the HTTP reply mid-flight; expected
+            pass  # reset kills the HTTP reply / USB device; expected
         print("M999 sent - board is rebooting (a few seconds); re-home "
               "before moving")
     else:
         print("skipped - changes apply after the next power cycle/M999")
+    client.close()
     return EXIT_OK
 
 
@@ -252,7 +274,8 @@ def _cmd_calibrate_plane(args) -> int:
     from .config.profile_store import save_profile
     import dataclasses as _dc
 
-    profile = load_profile(args.profile)
+    saved = load_profile(args.profile)
+    profile = _link_override(saved, args)  # the link override is never saved
     tool = profile.tool(args.tool)
     if tool is None or tool.z_axis is None:
         raise PrinterError(f"tool {args.tool} has no z_axis configured")
@@ -286,8 +309,8 @@ def _cmd_calibrate_plane(args) -> int:
                 new_tools = tuple(
                     _dc.replace(t, plane_offset_mm=round(pos, 3))
                     if t.tool_index == args.tool else t
-                    for t in profile.tools)
-                new_profile = _dc.replace(profile, tools=new_tools)
+                    for t in saved.tools)
+                new_profile = _dc.replace(saved, tools=new_tools)
                 save_profile(args.profile, new_profile)
                 print(f"tool {args.tool}: plane_offset_mm = {pos:.3f} saved "
                       f"to {args.profile}")
@@ -305,6 +328,23 @@ def _cmd_calibrate_plane(args) -> int:
         adapter.disconnect()
 
 
+# -------------------------------------------------------------------- ports
+def _cmd_ports(args) -> int:
+    from .controllers.motion.duet.serial_client import list_serial_ports
+
+    ports = list_serial_ports()
+    if not ports:
+        print("no serial ports present")
+        return EXIT_FAILED
+    for device, description, is_duet in ports:
+        tag = "  <-- Duet" if is_duet else ""
+        print(f"{device:8} {description}{tag}")
+    duets = [d for d, _desc, is_duet in ports if is_duet]
+    if len(duets) == 1:
+        print(f"\n--transport usb will use {duets[0]} (port \"auto\")")
+    return EXIT_OK if duets else EXIT_FAILED
+
+
 # ----------------------------------------------------------------------- ui
 def _cmd_ui(args) -> int:
     from .app import main as ui_main
@@ -312,6 +352,10 @@ def _cmd_ui(args) -> int:
     forwarded: list[str] = []
     if args.profile:
         forwarded += ["--profile", args.profile]
+    if getattr(args, "transport", None):
+        forwarded += ["--transport", args.transport]
+    if getattr(args, "port", None):
+        forwarded += ["--port", args.port]
     if args.file:
         forwarded.append(args.file)
     return ui_main(forwarded)
@@ -324,9 +368,18 @@ def build_parser() -> argparse.ArgumentParser:
         description="Continuous-fiber printer control (motion-only v1)")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def add_link(p) -> None:
+        p.add_argument("--transport", choices=["http", "usb"],
+                       help="Duet link for this run: http (Ethernet) or usb "
+                            "(default: the profile's connection.transport)")
+        p.add_argument("--port",
+                       help="USB serial port, e.g. COM3 (implies --transport "
+                            "usb; default: auto-detect the Duet)")
+
     def add_common(p) -> None:
         p.add_argument("file", help="G-code file")
         p.add_argument("--profile", required=True, help="machine profile JSON")
+        add_link(p)
         p.add_argument("--mode", choices=["sim", "real"],
                        help="override the profile's motion mode")
         p.add_argument("--home-first", action="store_true",
@@ -351,6 +404,7 @@ def build_parser() -> argparse.ArgumentParser:
         "apply-config",
         help="generate the board config include from the profile; upload it")
     apply_cfg.add_argument("--profile", required=True)
+    add_link(apply_cfg)
     apply_cfg.add_argument("--dry-run", action="store_true",
                            help="print the generated file, upload nothing")
     apply_cfg.set_defaults(func=_cmd_apply_config, log_level="INFO")
@@ -361,6 +415,7 @@ def build_parser() -> argparse.ArgumentParser:
     plane = calibrate_sub.add_parser(
         "plane", help="jog tool Z to the print plane; save plane_offset_mm")
     plane.add_argument("--profile", required=True)
+    add_link(plane)
     plane.add_argument("--tool", type=int, default=0)
     plane.add_argument("--feed-mm-s", type=float, default=5.0,
                        help="jog feed (mm/s, default 5)")
@@ -369,7 +424,12 @@ def build_parser() -> argparse.ArgumentParser:
     ui = sub.add_parser("ui", help="launch the PySide6 print console")
     ui.add_argument("file", nargs="?", help="G-code file to preload")
     ui.add_argument("--profile", help="machine profile JSON to preload")
+    add_link(ui)
     ui.set_defaults(func=_cmd_ui)
+
+    ports = sub.add_parser(
+        "ports", help="list serial ports and mark the Duet (USB transport)")
+    ports.set_defaults(func=_cmd_ports, log_level="WARNING")
     return parser
 
 

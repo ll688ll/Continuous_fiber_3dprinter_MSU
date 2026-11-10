@@ -136,6 +136,10 @@ class DuetFileExecutor(_DuetExecutorBase):
     def run(self) -> None:
         runner = self.runner
         program = self._emit_program()
+        if getattr(self.client, "strips_upload_comments", False):
+            # USB: the card holds the comment-free program; progress offsets
+            # (job.filePosition) must index those bytes, not the original's
+            program = program.without_comments()
         # rr_upload takes the volume-less path; M32 addresses volume 0:
         upload_path = f"/gcodes/msu_jobs/{runner.job_id}.g"
         board_path = f"0:{upload_path}"

@@ -57,6 +57,21 @@ class EmittedProgram:
     def data(self) -> bytes:
         return self.text().encode("ascii")
 
+    def without_comments(self) -> "EmittedProgram":
+        """Same program minus full-line comments and blank lines, offsets
+        recomputed. USB uploads hold exactly these bytes (comments cost
+        serial time and RRF's line parser may drop them while writing)."""
+        out = EmittedProgram(final_targets=dict(self.final_targets))
+        for line, src in zip(self.lines, self.source_lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith(";"):
+                continue
+            out.byte_offsets.append(out.total_bytes)
+            out.lines.append(line.rstrip())
+            out.source_lines.append(src)
+            out.total_bytes += len(line.rstrip().encode("ascii", "replace")) + 1
+        return out
+
     def source_line_at_offset(self, byte_offset: int) -> int:
         """Map a job.filePosition byte offset to the source G-code line."""
         source = 0

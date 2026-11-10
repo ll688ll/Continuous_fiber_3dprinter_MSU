@@ -11,8 +11,37 @@ printer-msu ui --profile configs/duet_lab.json
 ```
 
 The profile decides everything (machine, mode); there is no mode switch in
-the UI. `configs/duet_lab.json` is the real machine, `configs/printer_sim_v2.json`
+the UI. The one exception is the **Link** row, below. `configs/duet_lab.json` is the real machine, `configs/printer_sim_v2.json`
 is the simulator. Three tabs: **Print**, **Manual**, **Setup**.
+
+## Link: Ethernet or USB
+
+A Duet profile shows a **Link** row under the profile: **Ethernet (HTTP)** or
+**USB serial**, with a **Port** box (empty = find the Duet automatically by
+its USB ID; or type e.g. `COM3`). It starts at the profile's
+`connection.transport` and is fixed while connected. Changing it affects this
+session only; the profile file is untouched. To make USB the default, set
+`"transport": "usb"` in the profile's Duet `connection` block.
+
+```
+printer-msu ui --profile configs/duet_lab.json --transport usb
+printer-msu ports
+```
+
+Everything works on both links. What is different on USB:
+- **E-STOP** is written straight to the port, so it never waits behind a
+  running command such as homing.
+- **Clear E-Stop** (M999) makes the board drop off USB and come back; the app
+  reopens the port. Re-home afterwards, as on Ethernet.
+- **Uploads** (preload jobs, Setup → Apply) are slower and are written
+  without comments, then checked against an SHA-1 of what was sent.
+- If the cable drops: a **preloaded** job keeps running on the board; a
+  **streamed** job starves and stops. Prefer Ethernet for long prints.
+- Only one program can hold a COM port. Close Cura (its USB plugin grabs
+  ports) and Duet Web Control's serial console first.
+
+USB support has been checked against a simulated board only. Run the bench
+checklist in `docs/TODO.md` (section 4) before printing over USB.
 
 ## Print tab
 

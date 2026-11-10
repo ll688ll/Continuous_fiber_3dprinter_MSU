@@ -17,6 +17,7 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -36,7 +37,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..config.profile import MachineProfile, load_profile
+from ..config.profile import (
+    CONTROLLER_DUET,
+    DUET_TRANSPORT_HTTP,
+    DUET_TRANSPORT_USB,
+    MachineProfile,
+    load_profile,
+    with_duet_transport,
+)
 from ..core.gcode.analysis import analyze
 from ..core.gcode.interpreter import interpret
 from ..core.gcode.parser import parse_file
@@ -58,7 +66,9 @@ _STATE_COLORS = {
 
 class PrintConsoleWindow(QMainWindow):
     def __init__(self, profile_path: Optional[str] = None,
-                 gcode_path: Optional[str] = None) -> None:
+                 gcode_path: Optional[str] = None,
+                 transport: Optional[str] = None,
+                 port: Optional[str] = None) -> None:
         super().__init__()
         self.setWindowTitle("printer_msu — print console (motion-only v1)")
         self.resize(900, 640)
@@ -92,6 +102,8 @@ class PrintConsoleWindow(QMainWindow):
 
         if profile_path:
             self.load_profile(profile_path)
+        if transport:
+            self.set_link(transport, port)
         if gcode_path:
             self.open_gcode(gcode_path)
         self._update_buttons()
@@ -122,6 +134,24 @@ class PrintConsoleWindow(QMainWindow):
         grid.addWidget(self.profile_label, 1, 0)
         grid.addWidget(self.connect_btn, 1, 1)
         grid.addWidget(self.conn_label, 1, 2)
+        # Duet link: Ethernet (HTTP) or USB serial; defaults to the profile,
+        # changing it here affects this session only (the file is untouched)
+        link_row = QHBoxLayout()
+        link_row.addWidget(QLabel("Link:"))
+        self.link_combo = QComboBox()
+        self.link_combo.addItem("Ethernet (HTTP)", DUET_TRANSPORT_HTTP)
+        self.link_combo.addItem("USB serial", DUET_TRANSPORT_USB)
+        self.link_combo.currentIndexChanged.connect(
+            lambda _i: self._update_buttons())
+        self.port_edit = QLineEdit()
+        self.port_edit.setPlaceholderText("auto (finds the Duet)")
+        self.port_edit.setToolTip("USB serial port, e.g. COM3; empty = "
+                                  "auto-detect the Duet by its USB ID")
+        link_row.addWidget(self.link_combo)
+        link_row.addWidget(QLabel("Port:"))
+        link_row.addWidget(self.port_edit)
+        link_row.addStretch(1)
+        grid.addLayout(link_row, 2, 0, 1, 3)
         root.addWidget(machine_box)
 
         # file row
@@ -239,6 +269,11 @@ class PrintConsoleWindow(QMainWindow):
         self._log(f"profile loaded: {self.profile.profile_name}")
         self.setup_page.load_from(self.profile, path)
         self.manual_page.set_profile(self.profile)
+        duet = self._duet_controller()
+        if duet is not None:
+            port = duet.connection.get("port", "auto")
+            self.set_link(duet.duet_transport,
+                          None if port == "auto" else port)
         if self.gcode_path is not None:
             self._scan_capabilities()
         self._update_buttons()
@@ -259,6 +294,24 @@ class PrintConsoleWindow(QMainWindow):
         self._update_buttons()
 
     # ------------------------------------------------------------ connection
+    def _duet_controller(self):
+        if self.profile is None:
+            return None
+        return next((c for c in self.profile.controllers
+                     if c.type == CONTROLLER_DUET), None)
+
+    def set_link(self, transport: str, port: Optional[str] = None) -> None:
+        """Select the Duet link shown in the Link row (session only)."""
+        index = self.link_combo.findData(transport)
+        if index >= 0:
+            self.link_combo.setCurrentIndex(index)
+        self.port_edit.setText(port or "")
+
+    def link_choice(self) -> tuple[str, Optional[str]]:
+        transport = self.link_combo.currentData()
+        port = self.port_edit.text().strip() or None
+        return transport, port
+
     def _toggle_connection(self) -> None:
         if self.adapter is None:
             self.connect_machine()
@@ -269,6 +322,14 @@ class PrintConsoleWindow(QMainWindow):
         if self.profile is None:
             return
         profile = self.profile
+        if self._duet_controller() is not None:
+            transport, port = self.link_choice()
+            try:
+                profile = with_duet_transport(profile, transport, port)
+            except Exception as exc:
+                self._log(f"link: {exc}")
+                QMessageBox.warning(self, "Link", str(exc))
+                return
         self.connect_btn.setEnabled(False)
         self.conn_label.setText("connecting…")
 
@@ -408,8 +469,9 @@ class PrintConsoleWindow(QMainWindow):
                       f"power cycle) to apply, then re-home")
         elif name == "connect":
             self.adapter = result
-            self.conn_label.setText("connected")
-            self._log("controller connected")
+            where = getattr(getattr(result, "client", None), "base", "")
+            self.conn_label.setText(f"connected {where}".strip())
+            self._log(f"controller connected {where}".strip())
             self.manual_page.set_connected(True)
             interval = 0.2 if self.profile.is_sim else 0.5
             self.poller = StatusPoller(self.adapter, interval_s=interval,
@@ -507,6 +569,11 @@ class PrintConsoleWindow(QMainWindow):
         manual_busy = self.manual_page.is_busy
         blocked = job_active or manual_busy
         self.load_profile_btn.setEnabled(not connected)
+        is_duet = self._duet_controller() is not None
+        self.link_combo.setEnabled(is_duet and not connected)
+        self.port_edit.setEnabled(
+            is_duet and not connected
+            and self.link_combo.currentData() == DUET_TRANSPORT_USB)
         self.connect_btn.setEnabled(self.profile is not None and not blocked)
         self.connect_btn.setText("Disconnect" if connected else "Connect")
         self.check_btn.setEnabled(connected and self.gcode_path is not None

@@ -47,7 +47,8 @@ def _fmt(value: float) -> str:
 
 
 class DuetMotionAdapter(BaseMotionController):
-    """Drives one Duet board over HTTP for connect/status/home/jog/e-stop."""
+    """Drives one Duet board for connect/status/home/jog/e-stop, over either
+    client (``DuetClient`` HTTP or ``DuetSerialClient`` USB; same methods)."""
 
     HOME_TIMEOUT_S = 180.0
     MOVE_TIMEOUT_S = 120.0
@@ -71,7 +72,7 @@ class DuetMotionAdapter(BaseMotionController):
 
     @property
     def client(self) -> DuetClient:
-        """The shared HTTP client (execution strategies ride the same lock)."""
+        """The shared client (execution strategies ride the same lock)."""
         return self._client
 
     # ------------------------------------------------------------- lifecycle
@@ -84,6 +85,9 @@ class DuetMotionAdapter(BaseMotionController):
 
     def disconnect(self) -> None:
         self._connected = False
+        # USB: release the COM port (Windows opens it exclusively, so a
+        # reconnect or another tool would be refused). HTTP: drops keep-alive.
+        self._client.close()
 
     def _check_drift(self) -> list[str]:
         """Profile vs live board config (M92/M208 essentials)."""
@@ -263,7 +267,7 @@ class DuetMotionAdapter(BaseMotionController):
         try:
             self._client.send_emergency("M999")
         except DuetError:
-            pass  # the reset usually kills the HTTP reply mid-flight
+            pass  # the reset kills the HTTP reply / the USB device mid-flight
         deadline = time.monotonic() + self.RECONNECT_TIMEOUT_S
         while True:
             time.sleep(1.0)

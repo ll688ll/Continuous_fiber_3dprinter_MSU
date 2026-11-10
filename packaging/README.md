@@ -26,12 +26,13 @@ three artifacts, all produced by one command:
 
 ```bash
 pip install -e libs/fmc-motion[dev] -c constraints.txt
-pip install -e ".[ui,sim,dev,build]" -c constraints.txt
+pip install -e ".[ui,usb,sim,dev,build]" -c constraints.txt
 python packaging/build_release.py
 ```
 
 The smoke test drives the frozen executables from an unrelated working
-directory: `--help`, a preflight and a simulated print must pass, the job
+directory: `--help` and `ports` (proves pyserial is bundled for the USB
+transport), a preflight and a simulated print must pass, the job
 report must appear in `logs/` next to the exe, and the windowed exe must boot
 Qt offscreen and stay up. The build stops on any failure and never tags,
 pushes or uploads.
@@ -72,7 +73,7 @@ pushes or uploads.
 
 ```
 printer_msu-<ver>-win64/
-  printer-msu.exe         console: check / print / apply-config / calibrate plane / ui
+  printer-msu.exe         console: check / print / apply-config / calibrate plane / ports / ui
   printer-msu-ui.exe      the desktop console
   _internal/              PyInstaller runtime (do not touch)
   configs/                duet_lab.json (the machine), printer_sim_v2.json + sim_machine.json (simulator)

@@ -178,6 +178,14 @@ def step_smoke(bundle: Path) -> None:
 
     with tempfile.TemporaryDirectory() as far_away:
         run([cli, "--help"], cwd=far_away, env=env, stdout=subprocess.DEVNULL)
+        # USB transport: pyserial must be bundled. Exit 1 just means no Duet
+        # is plugged into the build machine.
+        ports = subprocess.run([str(cli), "ports"], cwd=far_away, env=env,
+                               capture_output=True, text=True)
+        if ports.returncode not in (0, 1) or "pyserial" in ports.stdout + ports.stderr:
+            raise SystemExit(f"smoke: `ports` failed (pyserial not bundled?)\n"
+                             f"{ports.stdout}{ports.stderr}")
+        print("  ports:", (ports.stdout.strip().splitlines() or ["(none)"])[0])
         run([cli, "check", gcode, "--profile", profile], cwd=far_away, env=env)
         run([cli, "print", gcode, "--profile", profile, "--home-first"],
             cwd=far_away, env=env)

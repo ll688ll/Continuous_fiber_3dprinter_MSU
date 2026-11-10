@@ -13,6 +13,8 @@ requires-python = ">=3.10"
 # The core (Duet backend, G-code, services) is stdlib-only. Everything else is
 # an extra so headless/library consumers stay lightweight (PRD Q7):
 #   ui   the PySide6 desktop console
+#   usb  pyserial, for the Duet USB serial transport (connection.transport
+#        "usb"); Ethernet needs nothing extra
 #   sim  the FMC simulator backend behind configs/printer_sim*.json and the
 #        sim tests. fmc-motion lives in libs/fmc-motion and is NOT on PyPI:
 #        install it from there (dev) or from its wheel with --find-links.
@@ -24,6 +26,9 @@ printer-msu = "printer_msu.cli:main"
 [project.optional-dependencies]
 ui = [
   "PySide6>=6.6",
+]
+usb = [
+  "pyserial>=3.5",
 ]
 sim = [
   "fmc-motion==1.1.1",

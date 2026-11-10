@@ -123,6 +123,11 @@ python duet_send.py --file config.g
 Files can be written to the card over the same link with
 `M28 "/sys/<name>"` … lines … `M29`, so the card never has to come out.
 
+`printer_msu` 1.1 can drive the whole machine over this link
+(`--transport usb`, or `"transport": "usb"` in the profile): status via
+`M409`, uploads via `M28`/`M29` checked with `M38`, e-stop written outside the
+command queue. `duet_send.py` stays the tool for one-off commands.
+
 **Cura holds COM ports open.** Its USB-printing plugin auto-probes them, so
 "Access to the port is denied" while Windows shows the device Present/OK means
 close Cura.

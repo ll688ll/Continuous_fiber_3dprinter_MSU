@@ -16,7 +16,7 @@ the schema itself is future-open to mixed machines.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -32,6 +32,11 @@ POLICY_CLAMP = "clamp"
 CONTROLLER_FMC = "fmc_motion"
 CONTROLLER_DUET = "duet"
 _CONTROLLER_TYPES = (CONTROLLER_FMC, CONTROLLER_DUET)
+
+#: how the host reaches a Duet: Ethernet HTTP (rr_* API) or USB serial
+DUET_TRANSPORT_HTTP = "http"
+DUET_TRANSPORT_USB = "usb"
+DUET_TRANSPORTS = (DUET_TRANSPORT_HTTP, DUET_TRANSPORT_USB)
 
 #: io0.in is physically serial0.rx on the MB6XD — an endstop there reads
 #: garbage whenever the UART is enabled (hardware trap, 2026-08-25).
@@ -58,6 +63,14 @@ class ControllerDef:
     @property
     def duet_host(self) -> str:
         return self.connection["host"]
+
+    @property
+    def duet_transport(self) -> str:
+        return self.connection.get("transport", DUET_TRANSPORT_HTTP)
+
+    @property
+    def duet_port(self) -> str:
+        return self.connection.get("port", "auto")
 
 
 # --------------------------------------------------------------------- axes
@@ -412,14 +425,49 @@ def _parse_controller(raw: Mapping[str, Any], base_dir: Path | None) -> Controll
         _choice(f"controller {cid!r}.connection", "mode",
                 conn.get("mode", "sim"), ("sim", "real"))
     else:  # duet
-        host = _require(conn, "host", f"controller {cid!r}.connection")
-        if not isinstance(host, str) or not host:
-            raise ProfileError(f"controller {cid!r}: connection.host must be a "
-                               f"non-empty string")
-        conn.setdefault("password", "")
-        conn["http_timeout_s"] = _positive(conn.get("http_timeout_s", 20.0),
-                                           f"controller {cid!r}.connection.http_timeout_s")
+        ctx = f"controller {cid!r}.connection"
+        transport = _choice(ctx, "transport",
+                            conn.get("transport", DUET_TRANSPORT_HTTP),
+                            DUET_TRANSPORTS)
+        # host is required for Ethernet; a USB profile may keep it so the
+        # link can be switched without editing the profile
+        if transport == DUET_TRANSPORT_HTTP or "host" in conn:
+            host = _require(conn, "host", ctx)
+            if not isinstance(host, str) or not host:
+                raise ProfileError(f"controller {cid!r}: connection.host must "
+                                   f"be a non-empty string")
+            conn.setdefault("password", "")
+            conn["http_timeout_s"] = _positive(conn.get("http_timeout_s", 20.0),
+                                               f"{ctx}.http_timeout_s")
+        if transport == DUET_TRANSPORT_USB or "port" in conn:
+            port = conn.get("port", "auto")
+            if not isinstance(port, str) or not port:
+                raise ProfileError(f"controller {cid!r}: connection.port must "
+                                   f"be a COM port name or \"auto\"")
+            conn["port"] = port
+            conn["serial_timeout_s"] = _positive(
+                conn.get("serial_timeout_s", 20.0), f"{ctx}.serial_timeout_s")
     return ControllerDef(id=cid, type=ctype, connection=conn)
+
+
+def with_duet_transport(profile: "MachineProfile", transport: str,
+                        port: Optional[str] = None) -> "MachineProfile":
+    """Copy of ``profile`` with every Duet controller switched to
+    ``transport`` (and ``port`` for USB). Re-validated: switching to http
+    without a host raises ProfileError."""
+    _choice("override", "transport", transport, DUET_TRANSPORTS)
+    controllers = []
+    for c in profile.controllers:
+        if c.type != CONTROLLER_DUET:
+            controllers.append(c)
+            continue
+        conn = dict(c.connection)
+        conn["transport"] = transport
+        if port:
+            conn["port"] = port
+        controllers.append(_parse_controller(
+            {"id": c.id, "type": c.type, "connection": conn}, None))
+    return replace(profile, controllers=tuple(controllers))
 
 
 def _parse_axis(raw: Mapping[str, Any], controllers: Mapping[str, ControllerDef],

@@ -15,6 +15,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                                      description="PySide6 print console")
     parser.add_argument("file", nargs="?", help="G-code file to preload")
     parser.add_argument("--profile", help="machine profile JSON to preload")
+    parser.add_argument("--transport", choices=["http", "usb"],
+                        help="initial Duet link (default: the profile's)")
+    parser.add_argument("--port", help="USB serial port (implies usb)")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
     try:
@@ -27,6 +30,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     from .ui.print_console import PrintConsoleWindow
 
     app = QApplication([])
-    window = PrintConsoleWindow(profile_path=args.profile, gcode_path=args.file)
+    transport = args.transport or ("usb" if args.port else None)
+    window = PrintConsoleWindow(profile_path=args.profile, gcode_path=args.file,
+                                transport=transport, port=args.port)
     window.show()
     return app.exec()

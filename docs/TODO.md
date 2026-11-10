@@ -190,6 +190,35 @@ fiber logic, sensor response, path generated on the fly.
 > board fast is exactly what makes host-timed sync impossible — which is why tool
 > sync has to live in the planner.
 
+### [ ] Bench-check the USB serial transport (printer_msu 1.1.0)
+
+Built and tested against the fake board only. Assumptions about RRF's serial
+behaviour that only the real 6XD can confirm, in order. Run each with
+`--transport usb`, Ethernet unplugged, motors able to move freely:
+
+1. `printer-msu ports` marks the board; `ui` connects, drift check CLEAN
+   (proves `M115` sync and `M409` replies match `rr_model`).
+2. Home all, jog, go-to: positions and homed flags update.
+3. **E-stop during homing**: press E-STOP while `G28` runs. The board must
+   halt at once. This proves RRF acts on `M112` from USB while the USB
+   channel is busy. If it waits for the homing to finish, USB is NOT safe
+   for operation: stop and report.
+4. Clear E-Stop: the COM port disappears and comes back; the app reconnects
+   within 30 s. If Windows assigns a new COM number, `"port": "auto"` must
+   still find it.
+5. Setup → Apply over USB: watch the log for "pipelining". It means RRF does
+   not ack `M28` file lines (the code copes, but note it). If Apply fails
+   with "did not open the file for writing", RRF's `M28` reply is not the
+   expected `Writing to file: …`: copy the reply from the log. The SHA-1 check
+   must pass. If it fails consistently, RRF stores lines differently from
+   what was sent: report the two hashes.
+6. Preload the reference Cura file over USB: upload time, SHA-1 pass, run,
+   board duration vs the 1964 s baseline.
+7. Stream a short file over USB, then the reference file: duration vs
+   1972.5 s.
+8. Pull the USB cable during a preloaded job: the print must continue; the
+   app reports read failures and recovers when the cable returns.
+
 ### [ ] Decide what happens to `libs/fmc-motion`
 
 Finished and hardware-validated, but the controller it drives is retired. It is
