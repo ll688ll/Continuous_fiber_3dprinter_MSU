@@ -25,7 +25,7 @@ three artifacts, all produced by one command:
 ## Build
 
 ```bash
-pip install -e libs/fmc-motion[dev] -c constraints.txt
+pip install -e "libs/fmc-motion[dev]" -c constraints.txt
 pip install -e ".[ui,usb,sim,dev,build]" -c constraints.txt
 python packaging/build_release.py
 ```

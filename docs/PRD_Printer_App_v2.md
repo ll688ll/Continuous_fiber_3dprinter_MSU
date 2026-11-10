@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Status | **Implemented (software) 2026-08-30** — V2-M1..M6 landed, all sim/fake-board verified; hardware shakeout pending (see §6) |
-| Date | 2026-08-30 |
+| Status | **v1.0.0 released 2026-09-01** (V2-M1..M7, hardware-proven on the 6XD). **v1.1.0 implemented 2026-11-09** (V2-M8 USB serial transport, fake-board verified; bench checklist owed, see §4 item 6) |
+| Date | 2026-08-30, updated 2026-11-09 |
 | Owner | Jacky Lyu |
 | Related | `PRD_Printer_App.md` (v1, frozen record), `PRD_Motion_Control_Library.md` (FMC library, finished), `firmware/duet3_6xd/README.md` (the live machine), `docs/TODO.md` |
 
@@ -37,6 +37,11 @@ New decisions made during implementation:
   (`policies.config_drift`).
 - **D7 — preload (Mode B) is the default execution**; streaming (Mode A)
   is for host-in-the-loop work (`policies.execution` / `--execution`).
+- **D8 — USB serial is a second transport, not a second backend**
+  (2026-11-09): same client interface, chosen per profile or per session;
+  Ethernet stays the default and the recommendation for long prints (the
+  workstation's USB has dropped out). Preload over stream on USB: a
+  preloaded job survives a cable drop, a streamed one starves.
 
 ## 2. What was built (by milestone, all on `main`)
 
@@ -97,10 +102,37 @@ New decisions made during implementation:
   except slightly longer (equivalent) search bounds. Adding an axis in
   the UI now covers the whole loop: row → Save → Apply → home.
 
-Tests: **191 printer + 83 fmc-motion**, all green. The Duet path runs
+- **V2-M7 (2026-09-01/02) — first release, printer_msu 1.0.0**:
+  versions read from `__version__` (app 1.0.0, fmc-motion 1.1.1);
+  `fmc-motion` demoted to the `sim` extra (the Duet path never imports it);
+  dead in-app FMC plugin removed; job reports anchored to the app folder
+  (`paths.py`, never the CWD); MIT licence, CHANGELOG, `constraints.txt`.
+  `packaging/`: PyInstaller one-dir bundle with two exes (console +
+  windowed UI), build driver with smoke test, SHA-256 release manifest and
+  zip; GitHub Actions runs the suite on Windows and drafts a release on
+  `v*` tags. Tagged `v1.0.0` and pushed.
+- **V2-M8 (2026-11-09) — USB serial transport, printer_msu 1.1.0**:
+  `controllers/motion/duet/serial_client.py` — `DuetSerialClient` with
+  `DuetClient`'s exact interface, so adapter, both executors, tool
+  controller and Setup → Apply are unchanged. `M115` sync (proves RRF,
+  discards stale lines; re-run after any missed `ok`), `M409` for
+  `rr_model`, one line per `ok` (the flow control; never re-sent),
+  `M112`/`M999` written outside the command lock, `M28`/`M29` upload
+  verified by `M38` SHA-1 on the comment-stripped body (USB preload
+  uploads `EmittedProgram.without_comments()` so progress offsets match
+  the card). Profile `connection.transport` (`http` default | `usb`) and
+  `port` (`auto` = find by USB ID); `make_duet_client()` picks the client;
+  `with_duet_transport()` for session overrides. CLI `--transport` /
+  `--port` on every machine command plus `ports`; UI Link row on the
+  Print tab (session only, never saved). `usb` extra (pyserial), bundled.
+  **D8** below.
+
+Tests: **338** at v1.1.0 (191 printer + 83 fmc-motion at V2-M6), all green. The Duet path runs
 headless in CI against `tests/duet_testlib.ScriptedDuetBoard`, which
 reproduces the board's real failure modes (silent buffer overflow drop,
 rr_reply-only refusals, M999 reboot semantics, ghost-job start).
+`FakeUsbDuet` puts that same board behind RRF's serial dialect, so both
+transports are tested against one model.
 
 ## 3. Traps encoded as tests (do not relearn these)
 
@@ -113,6 +145,10 @@ M208; RRF wants mm/min (M203/M566/F); verify `M32` reply AND
 E rides the XY planner line; heater hardware-gated; **RRF M564 S1 CLAMPS
 out-of-envelope moves silently** (hardware-confirmed 2026-08-30) — the loud
 refusal lives host-side in the adapter, the board's clamp is the backstop.
+USB (V2-M8): never send a file line before `M28` is confirmed (the lines
+would EXECUTE); close a dead COM handle, never just forget it (Windows ports
+are exclusive, the reopen fails "access denied"); `M999` re-enumerates the
+USB device, so the handle is closed and the port reopened.
 
 ## 4. Hardware validation still owed (next lab visit)
 
@@ -144,13 +180,22 @@ refusal lives host-side in the adapter, the board's clamp is the backstop.
    M201=1000 mm/s² — accel is the documented lever. **1964 s is the
    app-path baseline going forward.** Open design choice: honour M204 as
    modal accel (slower, obeys the file) vs keep machine accel (current).
-   `--execution stream` run still pending (expect ≈ +1.2 %).
-4. `printer-msu calibrate plane --tool 0` dry run (mid-air capture).
+   ~~`--execution stream` run still pending~~ **Mode A DONE 2026-08-31**:
+   1972.5 s (record `docs/test-records/2026-08-31/streamed_print_mode_a.json`),
+   the stream-mode baseline.
+4. ~~`printer-msu calibrate plane --tool 0` dry run~~ **DONE 2026-09-01**:
+   T0 captured at 94.4 mm (mid-air; re-capture on the real print surface).
 5. Tool bring-up, gated (V2-M4 §hardware): cold extruder jog + steps/mm →
    thermocouple bench sanity → **HARD GATE: `Dn_ERR`→ALRM wiring
    meter-verified (Delta ALRM is a b-contact — conducts when healthy; RRF
    pull-up expects fault-LOW) + V4 e-stop chain** → M303 PID tune → first
    heated extrusion.
+6. **USB transport bench check (V2-M8)** — the 8-step checklist in
+   `docs/TODO.md` §4. Gate for tagging v1.1.0. Step 3 is safety-critical:
+   E-STOP during a USB `G28` must halt the board at once (proves RRF acts
+   on `M112` from USB while that channel is busy). Also confirms the `M28`
+   reply text, per-line acks in file mode, the `M38` hash, and COM
+   re-enumeration after M999.
 
 ## 5. Open items beyond this phase
 
@@ -160,4 +205,7 @@ refusal lives host-side in the adapter, the board's clamp is the backstop.
 - Multi-controller live driving (schema ready; runtime refuses per D-V2-1).
 - `cura_to_msu.py` limits should source from a profile (deprecation note in
   its header); most of its job is now `emit_machine_gcode`.
-- Push `main` to `origin/main` (still local-only — Jacky's call).
+- ~~Push `main` to `origin/main`~~ done; v1.0.0 tagged and pushed.
+  v1.1.0 is committed locally, pushed and tagged after item 6 of §4.
+- Open from V2-M8: whether the Setup tab should also expose the transport
+  (today: Print tab Link row for the session, profile JSON to persist).

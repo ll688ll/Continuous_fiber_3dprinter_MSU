@@ -27,7 +27,7 @@ See `../../docs/PRD_Motion_Control_Library.md` for the full requirements.
 ## Install (dev)
 
 ```bash
-pip install -e libs/fmc-motion[dev]
+pip install -e "libs/fmc-motion[dev]"   # [dev] = extras, not part of the path
 ```
 
 ## Quick start

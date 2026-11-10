@@ -2,8 +2,8 @@
 # Use it as a pip constraints file so dev installs and release builds resolve
 # to the versions the test suite and the hardware runs were done with:
 #
-#   pip install -e libs/fmc-motion[dev] -c constraints.txt
-#   pip install -e ".[ui,dev]" -c constraints.txt
+#   pip install -e "libs/fmc-motion[dev]" -c constraints.txt
+#   pip install -e ".[ui,usb,dev]" -c constraints.txt
 #
 # Regenerate after a deliberate upgrade with `pip freeze` and drop the two
 # `-e` lines (the local packages).

@@ -60,7 +60,7 @@ Customized multi-axis 3D printer control software (desktop) for a multi-module p
   performance and the silent-failure traps.
 - **`libs/fmc-motion/`**: standalone motion control library (`fmc_motion`) for
   FMC006GE31 6-axis controllers — real + sim backends, homing/self-check,
-  per-axis queues. Install with `pip install -e libs/fmc-motion[dev]`; test
+  per-axis queues. Install with `pip install -e "libs/fmc-motion[dev]"`; test
   with `pytest libs/fmc-motion/tests`.
   **The hardware it drives is retired**; the library is finished and
   hardware-validated, and is kept because `printer_msu` and its sim tests still
@@ -78,9 +78,13 @@ Customized multi-axis 3D printer control software (desktop) for a multi-module p
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e libs/fmc-motion[dev] -c constraints.txt
-pip install -e .[ui,dev] -c constraints.txt
+pip install -e "libs/fmc-motion[dev]" -c constraints.txt
+pip install -e ".[ui,usb,dev]" -c constraints.txt
 ```
+
+The folder is `libs/fmc-motion`. The `[dev]` after it is not part of the
+path: it is pip's syntax for "also install this package's `dev` extras"
+(pytest). Keep the quotes; some shells treat square brackets specially.
 
 `constraints.txt` pins the tested versions (PySide6 6.11.1, pytest 9.1 on
 Python 3.13). `fmc-motion` is only needed by the simulator profiles and the
